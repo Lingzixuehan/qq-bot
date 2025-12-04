@@ -14,11 +14,7 @@ from pathlib import Path
 
 # 添加父目录到路径
 sys.path.append(str(Path(__file__).parent.parent))
-from common.database import QuoteDB, init_db
-
-# 初始化数据库
-import asyncio
-asyncio.create_task(init_db())
+from common.database import QuoteDB
 
 # 添加语录
 add_quote = on_command("添加语录", aliases={"记录语录"}, priority=5)

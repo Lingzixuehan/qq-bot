@@ -13,12 +13,7 @@ import random
 
 # 添加父目录到路径
 sys.path.append(str(Path(__file__).parent.parent))
-from common.database import WaifuDB, init_db
-
-# 初始化数据库
-import asyncio
-asyncio.create_task(init_db())
-
+from common.database import WaifuDB
 
 # 抽老婆
 draw_waifu = on_command("抽老婆", aliases={"娶老婆", "今日老婆"}, priority=5)

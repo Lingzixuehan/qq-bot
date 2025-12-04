@@ -14,10 +14,15 @@ nonebot.init()
 driver = nonebot.get_driver()
 driver.register_adapter(OneBotV11Adapter)
 
-# 加载插件
-nonebot.load_from_toml("pyproject.toml")
+# 数据库初始化
+from plugins.common.database import init_db
 
-# 也可以直接加载插件目录
+@driver.on_startup
+async def startup():
+    """启动时初始化数据库"""
+    await init_db()
+
+# 加载插件（只加载一次）
 nonebot.load_plugins("plugins")
 
 if __name__ == "__main__":

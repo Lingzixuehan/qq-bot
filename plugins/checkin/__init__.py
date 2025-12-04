@@ -12,12 +12,7 @@ from pathlib import Path
 
 # 添加父目录到路径
 sys.path.append(str(Path(__file__).parent.parent))
-from common.database import CheckinDB, init_db
-
-# 初始化数据库
-import asyncio
-asyncio.create_task(init_db())
-
+from common.database import CheckinDB
 
 # 签到
 checkin = on_command("签到", aliases={"打卡", "每日签到"}, priority=5)
