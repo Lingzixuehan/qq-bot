@@ -15,6 +15,7 @@ from pathlib import Path
 # 添加父目录到路径
 sys.path.append(str(Path(__file__).parent.parent))
 from common.database import QuoteDB
+from common.image_generator import generate_quote_image_base64
 
 # 添加语录
 add_quote = on_command("添加语录", aliases={"记录语录"}, priority=5)
@@ -89,8 +90,24 @@ async def handle_random_quote(bot: Bot, event: GroupMessageEvent, args: Message 
     quote = await QuoteDB.get_random_quote(group_id, user_id)
 
     if quote:
-        msg = f"📝 {quote['user_name']} 曾经说过：\n\n{quote['content']}"
-        await random_quote.finish(MessageSegment.at(quote["user_id"]) + f"\n{msg}")
+        # 生成聊天截图样式的图片
+        try:
+            img_base64 = generate_quote_image_base64(
+                user_name=quote['user_name'],
+                content=quote['content']
+            )
+
+            # 发送图片
+            await random_quote.finish(
+                MessageSegment.at(quote["user_id"]) +
+                MessageSegment.text("\n📝 翻到一条语录：\n") +
+                MessageSegment.image(img_base64)
+            )
+        except Exception as e:
+            # 如果生成图片失败，使用文本格式
+            print(f"生成语录图片失败: {e}")
+            msg = f"📝 {quote['user_name']} 曾经说过：\n\n{quote['content']}"
+            await random_quote.finish(MessageSegment.at(quote["user_id"]) + f"\n{msg}")
     else:
         if user_id:
             await random_quote.finish("该用户还没有语录哦")
