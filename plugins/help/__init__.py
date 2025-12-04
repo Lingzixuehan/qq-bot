@@ -35,6 +35,13 @@ async def handle_help(event: GroupMessageEvent):
   自动功能 - 有人撤回消息时自动提醒
   会显示撤回的内容（文字、图片等）
 
+🎲 投骰子
+  /roll - 投一个6面骰子
+  /roll 20 - 投一个20面骰子
+  /roll 3d6 - 投3个6面骰子
+  /d6 /d20 /d100 - 快捷投骰子命令
+  /猜大小 大/小 - 猜大小游戏
+
 📖 其他
   /help - 显示本帮助信息
 
