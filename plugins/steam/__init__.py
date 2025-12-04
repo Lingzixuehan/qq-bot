@@ -41,15 +41,14 @@ async def handle_bind_steam(event: MessageEvent, args: Message = CommandArg()):
     steam_input = args.extract_plain_text().strip()
     if not steam_input:
         await bind_steam.finish(
-            "用法：/绑定steam <Steam ID/个性化URL/好友码>\n\n"
+            "用法：/绑定steam <Steam ID或个性化URL>\n\n"
             "示例：\n"
             "/绑定steam 76561198012345678 (Steam ID)\n"
-            "/绑定steam gaben (个性化URL)\n"
-            "/绑定steam 123-456-789 (好友码)\n\n"
+            "/绑定steam gaben (个性化URL)\n\n"
             "💡 获取Steam ID方法：\n"
             "1. 访问 https://steamcommunity.com/my/\n"
             "2. 地址栏中的数字就是你的Steam ID\n"
-            "3. 或使用个性化URL/好友码"
+            "3. 或者使用个性化URL（设置 > 编辑个人资料）"
         )
         return
 
@@ -58,23 +57,14 @@ async def handle_bind_steam(event: MessageEvent, args: Message = CommandArg()):
     # 尝试解析Steam ID
     steam_id = steam_input
 
-    # 如果输入看起来是17位Steam ID，直接使用
-    if steam_input.isdigit() and len(steam_input) == 17:
-        steam_id = steam_input
-    # 如果包含连字符，可能是好友码
-    elif "-" in steam_input:
-        resolved_id = await steam_api.resolve_friend_code(steam_input)
-        if not resolved_id:
-            await bind_steam.finish("❌ 无法解析该好友码，请检查后重试")
-            return
-        steam_id = resolved_id
-    # 否则尝试作为个性化URL解析
-    else:
+    # 如果不是纯数字，尝试作为个性化URL解析
+    if not steam_input.isdigit():
         resolved_id = await steam_api.resolve_vanity_url(steam_input)
-        if not resolved_id:
-            await bind_steam.finish("❌ 无法解析该个性化URL，请检查输入是否正确")
+        if resolved_id:
+            steam_id = resolved_id
+        else:
+            await bind_steam.finish("❌ 无法解析该Steam ID或个性化URL，请检查后重试")
             return
-        steam_id = resolved_id
 
     # 验证Steam ID并获取用户信息
     player_info = await steam_api.get_player_summaries(steam_id)
