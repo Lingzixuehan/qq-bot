@@ -7,6 +7,7 @@ from io import BytesIO
 from pathlib import Path
 from datetime import datetime
 import textwrap
+import httpx
 
 # 颜色配置
 BG_COLOR = (245, 245, 245)  # 背景色
@@ -21,6 +22,57 @@ PADDING = 20  # 边距
 BUBBLE_PADDING = 15  # 气泡内边距
 AVATAR_SIZE = 50  # 头像大小
 LINE_HEIGHT = 30  # 行高
+
+
+def download_qq_avatar(user_id: str, size: int = 100) -> Image.Image:
+    """
+    下载QQ头像
+
+    Args:
+        user_id: QQ号
+        size: 头像尺寸 (可选值: 1, 40, 100, 140, 640)
+
+    Returns:
+        PIL Image对象，如果下载失败返回None
+    """
+    try:
+        url = f"http://q1.qlogo.cn/g?b=qq&nk={user_id}&s={size}"
+        response = httpx.get(url, timeout=5)
+
+        if response.status_code == 200:
+            avatar_img = Image.open(BytesIO(response.content))
+            return avatar_img
+    except Exception as e:
+        print(f"下载头像失败: {e}")
+
+    return None
+
+
+def create_circular_avatar(avatar_img: Image.Image, size: int) -> Image.Image:
+    """
+    将头像裁剪为圆形
+
+    Args:
+        avatar_img: 头像图片
+        size: 目标尺寸
+
+    Returns:
+        圆形头像
+    """
+    # 调整头像大小
+    avatar_img = avatar_img.resize((size, size), Image.Resampling.LANCZOS)
+
+    # 创建圆形蒙版
+    mask = Image.new('L', (size, size), 0)
+    draw = ImageDraw.Draw(mask)
+    draw.ellipse((0, 0, size, size), fill=255)
+
+    # 应用蒙版
+    output = Image.new('RGBA', (size, size), (0, 0, 0, 0))
+    output.paste(avatar_img, (0, 0))
+    output.putalpha(mask)
+
+    return output
 
 
 def wrap_text(text: str, font, max_width: int):
@@ -54,7 +106,7 @@ def wrap_text(text: str, font, max_width: int):
     return lines
 
 
-def generate_quote_image(user_name: str, content: str, timestamp: str = None) -> BytesIO:
+def generate_quote_image(user_name: str, content: str, timestamp: str = None, user_id: str = None) -> BytesIO:
     """
     生成语录截图
 
@@ -62,6 +114,7 @@ def generate_quote_image(user_name: str, content: str, timestamp: str = None) ->
         user_name: 用户昵称
         content: 语录内容
         timestamp: 时间戳（可选）
+        user_id: 用户QQ号（可选，用于获取真实头像）
 
     Returns:
         BytesIO: 图片的字节流
@@ -102,33 +155,47 @@ def generate_quote_image(user_name: str, content: str, timestamp: str = None) ->
     img = Image.new('RGB', (WIDTH, total_height), BG_COLOR)
     draw = ImageDraw.Draw(img)
 
-    # 绘制头像（简单的圆形占位符）
+    # 绘制头像
     avatar_x = PADDING
     avatar_y = PADDING + 25 + 10
-    draw.ellipse(
-        [avatar_x, avatar_y, avatar_x + AVATAR_SIZE, avatar_y + AVATAR_SIZE],
-        fill=(200, 200, 200),
-        outline=(180, 180, 180),
-        width=2
-    )
 
-    # 在头像中绘制用户名首字母
-    if user_name:
-        first_char = user_name[0]
-        # 使用较大的字体
-        try:
-            avatar_font = ImageFont.truetype("C:/Windows/Fonts/msyhbd.ttc", 24)
-        except:
-            avatar_font = font_name
+    # 尝试使用真实头像
+    avatar_drawn = False
+    if user_id:
+        qq_avatar = download_qq_avatar(user_id, 100)
+        if qq_avatar:
+            # 创建圆形头像
+            circular_avatar = create_circular_avatar(qq_avatar, AVATAR_SIZE)
+            # 由于圆形头像是RGBA模式，需要转换背景
+            img.paste(circular_avatar, (avatar_x, avatar_y), circular_avatar)
+            avatar_drawn = True
 
-        char_bbox = draw.textbbox((0, 0), first_char, font=avatar_font)
-        char_width = char_bbox[2] - char_bbox[0]
-        char_height = char_bbox[3] - char_bbox[1]
+    # 如果没有真实头像，使用文字头像
+    if not avatar_drawn:
+        draw.ellipse(
+            [avatar_x, avatar_y, avatar_x + AVATAR_SIZE, avatar_y + AVATAR_SIZE],
+            fill=(200, 200, 200),
+            outline=(180, 180, 180),
+            width=2
+        )
 
-        char_x = avatar_x + (AVATAR_SIZE - char_width) // 2
-        char_y = avatar_y + (AVATAR_SIZE - char_height) // 2 - 5
+        # 在头像中绘制用户名首字母
+        if user_name:
+            first_char = user_name[0]
+            # 使用较大的字体
+            try:
+                avatar_font = ImageFont.truetype("C:/Windows/Fonts/msyhbd.ttc", 24)
+            except:
+                avatar_font = font_name
 
-        draw.text((char_x, char_y), first_char, fill=(255, 255, 255), font=avatar_font)
+            char_bbox = draw.textbbox((0, 0), first_char, font=avatar_font)
+            char_width = char_bbox[2] - char_bbox[0]
+            char_height = char_bbox[3] - char_bbox[1]
+
+            char_x = avatar_x + (AVATAR_SIZE - char_width) // 2
+            char_y = avatar_y + (AVATAR_SIZE - char_height) // 2 - 5
+
+            draw.text((char_x, char_y), first_char, fill=(255, 255, 255), font=avatar_font)
 
     # 绘制昵称和时间
     name_y = PADDING
@@ -173,13 +240,22 @@ def generate_quote_image(user_name: str, content: str, timestamp: str = None) ->
     return output
 
 
-def generate_quote_image_base64(user_name: str, content: str, timestamp: str = None) -> str:
+def generate_quote_image_base64(user_name: str, content: str, timestamp: str = None, user_id: str = None) -> str:
     """
     生成语录截图并返回 base64 编码
+
+    Args:
+        user_name: 用户昵称
+        content: 语录内容
+        timestamp: 时间戳（可选）
+        user_id: 用户QQ号（可选，用于获取真实头像）
+
+    Returns:
+        str: base64编码的图片数据
     """
     import base64
 
-    img_bytes = generate_quote_image(user_name, content, timestamp)
+    img_bytes = generate_quote_image(user_name, content, timestamp, user_id)
     img_base64 = base64.b64encode(img_bytes.read()).decode()
 
     return f"base64://{img_base64}"

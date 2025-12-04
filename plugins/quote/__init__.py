@@ -23,10 +23,19 @@ add_quote = on_command("添加语录", aliases={"记录语录"}, priority=5)
 @add_quote.handle()
 async def handle_add_quote(bot: Bot, event: GroupMessageEvent, args: Message = CommandArg()):
     """添加语录"""
+    # 获取bot自己的QQ号
+    bot_id = int(bot.self_id)
+
     # 检查是否有回复消息
     if event.reply:
         reply_msg = event.reply
         user_id = str(reply_msg.sender.user_id)
+
+        # 禁止添加bot自己的消息
+        if int(user_id) == bot_id:
+            await add_quote.finish("❌ 不能添加机器人的消息为语录")
+            return
+
         user_name = reply_msg.sender.nickname or str(user_id)
         content = reply_msg.message.extract_plain_text()
     else:
@@ -48,6 +57,12 @@ async def handle_add_quote(bot: Bot, event: GroupMessageEvent, args: Message = C
             return
 
         user_id = at_seg.data["qq"]
+
+        # 禁止添加bot自己的消息
+        if int(user_id) == bot_id:
+            await add_quote.finish("❌ 不能添加机器人的消息为语录")
+            return
+
         # 获取用户信息
         user_info = await bot.get_group_member_info(
             group_id=event.group_id,
@@ -94,7 +109,8 @@ async def handle_random_quote(bot: Bot, event: GroupMessageEvent, args: Message 
         try:
             img_base64 = generate_quote_image_base64(
                 user_name=quote['user_name'],
-                content=quote['content']
+                content=quote['content'],
+                user_id=quote['user_id']  # 传入user_id以获取真实头像
             )
 
             # 发送图片
