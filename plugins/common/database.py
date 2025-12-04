@@ -56,6 +56,18 @@ async def init_db():
             )
         """)
 
+        # Steam账号绑定表
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS steam_bindings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                qq_id TEXT NOT NULL UNIQUE,
+                steam_id TEXT NOT NULL,
+                steam_name TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
         await db.commit()
 
 
@@ -251,3 +263,50 @@ class WaifuDB:
             )
             row = await cursor.fetchone()
             return row[0] if row else None
+
+
+class SteamDB:
+    """Steam账号绑定数据库操作"""
+
+    @staticmethod
+    async def bind_steam(qq_id: str, steam_id: str, steam_name: str = None) -> bool:
+        """绑定Steam账号"""
+        try:
+            async with aiosqlite.connect(DB_PATH) as db:
+                await db.execute(
+                    "INSERT OR REPLACE INTO steam_bindings (qq_id, steam_id, steam_name, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)",
+                    (qq_id, steam_id, steam_name)
+                )
+                await db.commit()
+                return True
+        except Exception as e:
+            print(f"绑定Steam账号失败: {e}")
+            return False
+
+    @staticmethod
+    async def unbind_steam(qq_id: str) -> bool:
+        """解绑Steam账号"""
+        try:
+            async with aiosqlite.connect(DB_PATH) as db:
+                await db.execute(
+                    "DELETE FROM steam_bindings WHERE qq_id = ?",
+                    (qq_id,)
+                )
+                await db.commit()
+                return True
+        except Exception as e:
+            print(f"解绑Steam账号失败: {e}")
+            return False
+
+    @staticmethod
+    async def get_steam_binding(qq_id: str) -> Optional[dict]:
+        """获取Steam绑定信息"""
+        async with aiosqlite.connect(DB_PATH) as db:
+            cursor = await db.execute(
+                "SELECT steam_id, steam_name FROM steam_bindings WHERE qq_id = ?",
+                (qq_id,)
+            )
+            row = await cursor.fetchone()
+            if row:
+                return {"steam_id": row[0], "steam_name": row[1]}
+            return None

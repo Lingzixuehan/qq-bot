@@ -45,11 +45,18 @@ async def handle_help(bot: Bot, event: MessageEvent):
   /d6 /d20 /d100 - 快捷投骰子命令
   /猜大小 大/小 - 猜大小游戏
 
+🎮 Steam功能
+  /绑定steam <Steam ID> - 绑定Steam账号
+  /解绑steam - 解除Steam账号绑定
+  /steam资料 [@某人] - 查看Steam个人资料
+  /steam游戏 [@某人] - 查看最近在玩的游戏
+  /steam游戏库 [@某人] - 查看游戏库和游戏时长
+
 📖 其他
   /help - 显示本帮助信息
 
 ==================
-💡 提示：命令支持带 / 或不带 / 都可以
+💡 提示：所有命令都需要使用 / 前缀
         """.strip()
         await help_cmd.finish(help_text)
         return
@@ -94,7 +101,12 @@ async def handle_help(bot: Bot, event: MessageEvent):
         MessageSegment.node_custom(
             user_id=bot_id,
             nickname=bot_name,
-            content="📖 其他说明\n\n💡 命令支持带 / 或不带 / 都可以\n💡 例如：/help 和 help 都有效\n💡 大部分命令支持群聊和私聊"
+            content="🎮 Steam功能\n\n/绑定steam <Steam ID> - 绑定Steam账号\n/解绑steam - 解除Steam账号绑定\n/steam资料 [@某人] - 查看Steam个人资料\n/steam游戏 [@某人] - 查看最近在玩的游戏\n/steam游戏库 [@某人] - 查看游戏库和游戏时长\n\n💡 首次使用需要绑定Steam账号"
+        ),
+        MessageSegment.node_custom(
+            user_id=bot_id,
+            nickname=bot_name,
+            content="📖 其他说明\n\n💡 所有命令都需要使用 / 前缀\n💡 例如：/help\n💡 大部分命令支持群聊和私聊"
         ),
     ]
 
