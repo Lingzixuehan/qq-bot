@@ -53,6 +53,11 @@ async def handle_help(bot: Bot, event: MessageEvent):
   /steam游戏库 [@某人] - 查看游戏库和游戏时长
   /steam视奸 - 查看所有人的Steam在线状态
 
+🎨 二次元美图
+  /美图 - 随机获取一张二次元图片
+  /搜图 <关键词> - 根据关键词搜索图片
+  /来点图 [数量] - 获取多张图片（最多5张）
+
 📖 其他
   /help - 显示本帮助信息
 
@@ -103,6 +108,11 @@ async def handle_help(bot: Bot, event: MessageEvent):
             user_id=bot_id,
             nickname=bot_name,
             content="🎮 Steam功能\n\n/绑定steam <Steam ID> - 绑定Steam账号\n/解绑steam - 解除Steam账号绑定\n/steam资料 [@某人] - 查看Steam个人资料\n/steam游戏 [@某人] - 查看最近在玩的游戏\n/steam游戏库 [@某人] - 查看游戏库和游戏时长\n/steam视奸 - 查看所有人的Steam在线状态\n\n💡 首次使用需要绑定Steam账号"
+        ),
+        MessageSegment.node_custom(
+            user_id=bot_id,
+            nickname=bot_name,
+            content="🎨 二次元美图\n\n/美图 - 随机获取一张二次元图片\n/搜图 <关键词> - 根据关键词搜索图片\n/来点图 [数量] - 获取多张图片（最多5张）\n\n💡 图片来源于Pixiv，全年龄向"
         ),
         MessageSegment.node_custom(
             user_id=bot_id,
