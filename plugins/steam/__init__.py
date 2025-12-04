@@ -13,6 +13,7 @@ import os
 sys.path.append(str(Path(__file__).parent.parent))
 from common.database import SteamDB
 from common.steam_api import SteamAPI, format_playtime, get_player_state_text
+from common.steam_friends_image import generate_steam_friends_list_base64
 
 # 获取Steam API Key
 driver = get_driver()
@@ -300,3 +301,65 @@ async def handle_steam_games(event: MessageEvent, args: Message = CommandArg()):
         msg += f"{i}. {name}\n   {format_playtime(playtime)}\n"
 
     await steam_games.finish(msg.strip())
+
+
+# Steam视奸
+steam_spy = on_command("steam视奸", aliases={"视奸", "steam好友", "查看在线"}, priority=5)
+
+
+@steam_spy.handle()
+async def handle_steam_spy(event: MessageEvent):
+    """查看所有绑定用户的Steam状态"""
+    if not steam_api:
+        await steam_spy.finish("❌ Steam功能未配置")
+        return
+
+    # 获取所有绑定的用户
+    bindings = await SteamDB.get_all_bindings()
+
+    if not bindings:
+        await steam_spy.finish("❌ 还没有人绑定Steam账号")
+        return
+
+    # 提取所有Steam ID
+    steam_ids = [binding["steam_id"] for binding in bindings]
+
+    # 批量获取玩家信息
+    players_info = await steam_api.get_multiple_player_summaries(steam_ids)
+
+    if not players_info:
+        await steam_spy.finish("❌ 获取Steam状态失败，请稍后重试")
+        return
+
+    # 按状态排序：游戏中 > 在线 > 离线
+    def get_sort_key(player):
+        if player.get("gameextrainfo"):
+            return 0  # 游戏中
+        elif player.get("personastate", 0) > 0:
+            return 1  # 在线
+        else:
+            return 2  # 离线
+
+    players_info_sorted = sorted(players_info, key=get_sort_key)
+
+    # 生成好友列表图片
+    try:
+        img_base64 = generate_steam_friends_list_base64(players_info_sorted)
+        await steam_spy.finish(MessageSegment.image(img_base64))
+    except Exception as e:
+        print(f"生成Steam好友列表图片失败: {e}")
+        # 降级为文本格式
+        msg = f"🎮 Steam在线状态 ({len(players_info)}人)\n\n"
+        for player in players_info_sorted:
+            name = player.get("personaname", "未知")
+            state = player.get("personastate", 0)
+            game = player.get("gameextrainfo", None)
+
+            if game:
+                msg += f"🎮 {name}\n   游戏中: {game}\n\n"
+            elif state > 0:
+                msg += f"🟢 {name}\n   在线\n\n"
+            else:
+                msg += f"⚫ {name}\n   离线\n\n"
+
+        await steam_spy.finish(msg.strip())

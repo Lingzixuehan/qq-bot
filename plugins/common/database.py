@@ -310,3 +310,13 @@ class SteamDB:
             if row:
                 return {"steam_id": row[0], "steam_name": row[1]}
             return None
+
+    @staticmethod
+    async def get_all_bindings() -> List[dict]:
+        """获取所有Steam绑定信息"""
+        async with aiosqlite.connect(DB_PATH) as db:
+            cursor = await db.execute(
+                "SELECT qq_id, steam_id, steam_name FROM steam_bindings ORDER BY created_at"
+            )
+            rows = await cursor.fetchall()
+            return [{"qq_id": r[0], "steam_id": r[1], "steam_name": r[2]} for r in rows]

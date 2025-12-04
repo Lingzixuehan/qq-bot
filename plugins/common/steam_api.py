@@ -51,6 +51,39 @@ class SteamAPI:
 
         return None
 
+    async def get_multiple_player_summaries(self, steam_ids: List[str]) -> List[Dict]:
+        """
+        批量获取玩家资料
+
+        Args:
+            steam_ids: Steam ID列表 (最多100个)
+
+        Returns:
+            玩家资料列表
+        """
+        try:
+            # Steam API限制一次最多100个ID
+            if len(steam_ids) > 100:
+                steam_ids = steam_ids[:100]
+
+            url = f"{self.BASE_URL}/ISteamUser/GetPlayerSummaries/v0002/"
+            params = {
+                "key": self.api_key,
+                "steamids": ",".join(steam_ids)
+            }
+
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, params=params, timeout=10)
+
+                if response.status_code == 200:
+                    data = response.json()
+                    players = data.get("response", {}).get("players", [])
+                    return players
+        except Exception as e:
+            print(f"批量获取玩家资料失败: {e}")
+
+        return []
+
     async def get_owned_games(self, steam_id: str, include_appinfo: bool = True) -> Optional[List[Dict]]:
         """
         获取拥有的游戏列表
