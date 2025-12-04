@@ -178,6 +178,45 @@ class SteamAPI:
 
         return None
 
+    async def resolve_friend_code(self, friend_code: str) -> Optional[str]:
+        """
+        解析好友码到Steam ID
+        好友码格式: 123456789 或 123-456-789
+
+        Args:
+            friend_code: 好友码
+
+        Returns:
+            Steam ID (64位)
+        """
+        try:
+            # 移除连字符
+            friend_code_clean = friend_code.replace("-", "").replace(" ", "")
+
+            # 好友码应该是9-12位数字
+            if not friend_code_clean.isdigit() or len(friend_code_clean) not in [9, 12]:
+                return None
+
+            # 尝试作为个性化URL解析（某些情况下可能有效）
+            url = f"{self.BASE_URL}/ISteamUser/ResolveVanityURL/v0001/"
+            params = {
+                "key": self.api_key,
+                "vanityurl": friend_code_clean,
+                "url_type": 1
+            }
+
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, params=params, timeout=10)
+
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get("response", {}).get("success") == 1:
+                        return data["response"]["steamid"]
+        except Exception as e:
+            print(f"解析好友码失败: {e}")
+
+        return None
+
 
 def format_playtime(minutes: int) -> str:
     """

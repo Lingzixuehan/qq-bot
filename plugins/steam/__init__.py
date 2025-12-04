@@ -14,6 +14,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 from common.database import SteamDB
 from common.steam_api import SteamAPI, format_playtime, get_player_state_text
 from common.steam_friends_image import generate_steam_friends_list_base64
+from common.steam_profile_image import generate_steam_profile_image_base64, generate_steam_games_image_base64
 
 # 获取Steam API Key
 driver = get_driver()
@@ -40,14 +41,15 @@ async def handle_bind_steam(event: MessageEvent, args: Message = CommandArg()):
     steam_input = args.extract_plain_text().strip()
     if not steam_input:
         await bind_steam.finish(
-            "用法：/绑定steam <Steam ID或个性化URL>\n\n"
+            "用法：/绑定steam <Steam ID/个性化URL/好友码>\n\n"
             "示例：\n"
-            "/绑定steam 76561198012345678\n"
-            "/绑定steam gaben\n\n"
+            "/绑定steam 76561198012345678 (Steam ID)\n"
+            "/绑定steam gaben (个性化URL)\n"
+            "/绑定steam 123-456-789 (好友码)\n\n"
             "💡 获取Steam ID方法：\n"
             "1. 访问 https://steamcommunity.com/my/\n"
             "2. 地址栏中的数字就是你的Steam ID\n"
-            "3. 或者使用个性化URL（设置 > 编辑个人资料）"
+            "3. 或使用个性化URL/好友码"
         )
         return
 
@@ -56,14 +58,29 @@ async def handle_bind_steam(event: MessageEvent, args: Message = CommandArg()):
     # 尝试解析Steam ID
     steam_id = steam_input
 
-    # 如果不是纯数字，尝试作为个性化URL解析
-    if not steam_input.isdigit():
-        resolved_id = await steam_api.resolve_vanity_url(steam_input)
-        if resolved_id:
-            steam_id = resolved_id
+    # 如果不是纯数字或是短数字（可能是好友码），尝试解析
+    if not steam_input.isdigit() or (steam_input.isdigit() and len(steam_input) < 17):
+        # 先尝试好友码
+        if "-" in steam_input or (steam_input.isdigit() and len(steam_input) in [9, 12]):
+            resolved_id = await steam_api.resolve_friend_code(steam_input)
+            if resolved_id:
+                steam_id = resolved_id
+            else:
+                # 好友码失败，尝试个性化URL
+                resolved_id = await steam_api.resolve_vanity_url(steam_input)
+                if resolved_id:
+                    steam_id = resolved_id
+                else:
+                    await bind_steam.finish("❌ 无法解析该Steam ID/个性化URL/好友码，请检查后重试")
+                    return
         else:
-            await bind_steam.finish("❌ 无法解析该Steam ID或个性化URL，请检查后重试")
-            return
+            # 尝试作为个性化URL解析
+            resolved_id = await steam_api.resolve_vanity_url(steam_input)
+            if resolved_id:
+                steam_id = resolved_id
+            else:
+                await bind_steam.finish("❌ 无法解析该Steam ID或个性化URL，请检查后重试")
+                return
 
     # 验证Steam ID并获取用户信息
     player_info = await steam_api.get_player_summaries(steam_id)
@@ -148,43 +165,39 @@ async def handle_steam_profile(bot: Bot, event: MessageEvent, args: Message = Co
 
     steam_id = binding["steam_id"]
 
+    # 获取QQ用户信息
+    qq_user_name = None
+    try:
+        if isinstance(event, GroupMessageEvent):
+            user_info = await bot.get_group_member_info(group_id=event.group_id, user_id=int(target_qq))
+            qq_user_name = user_info.get("card") or user_info.get("nickname", f"QQ{target_qq}")
+        else:
+            user_info = await bot.get_stranger_info(user_id=int(target_qq))
+            qq_user_name = user_info.get("nickname", f"QQ{target_qq}")
+    except:
+        qq_user_name = f"QQ{target_qq}"
+
     # 获取Steam资料
     player_info = await steam_api.get_player_summaries(steam_id)
     if not player_info:
         await steam_profile.finish("❌ 获取Steam资料失败")
         return
 
-    # 构建资料信息
-    nickname = player_info.get("personaname", "未知")
-    state = get_player_state_text(player_info.get("personastateflags", 0))
-    avatar_url = player_info.get("avatarfull", "")
-    profile_url = player_info.get("profileurl", "")
-
     # 获取最近玩的游戏
-    recent_games = await steam_api.get_recently_played_games(steam_id, 3)
-    recent_text = ""
-    if recent_games:
-        recent_text = "\n\n📋 最近在玩："
-        for game in recent_games[:3]:
-            name = game.get("name", "未知游戏")
-            playtime_2weeks = game.get("playtime_2weeks", 0)
-            recent_text += f"\n  • {name} ({format_playtime(playtime_2weeks)})"
+    recent_games = await steam_api.get_recently_played_games(steam_id, 5)
 
-    # 构建消息
-    msg = (
-        f"🎮 Steam资料\n\n"
-        f"昵称：{nickname}\n"
-        f"状态：{state}\n"
-        f"主页：{profile_url}"
-        f"{recent_text}"
-    )
+    # 生成图片
+    try:
+        img_base64 = generate_steam_profile_image_base64(player_info, recent_games, qq_user_name)
+        await steam_profile.finish(MessageSegment.image(img_base64))
+    except Exception as e:
+        print(f"生成Steam资料图片失败: {e}")
+        # 降级为文本格式
+        nickname = player_info.get("personaname", "未知")
+        state = get_player_state_text(player_info.get("personastateflags", 0))
+        profile_url = player_info.get("profileurl", "")
 
-    # 如果有头像URL，尝试发送图片
-    if avatar_url:
-        await steam_profile.finish(
-            MessageSegment.image(avatar_url) + MessageSegment.text(f"\n{msg}")
-        )
-    else:
+        msg = f"🎮 Steam资料\n\nQQ用户: {qq_user_name}\nSteam昵称：{nickname}\n状态：{state}\n主页：{profile_url}"
         await steam_profile.finish(msg)
 
 
@@ -193,7 +206,7 @@ steam_recent = on_command("steam游戏", aliases={"最近在玩"}, priority=5)
 
 
 @steam_recent.handle()
-async def handle_steam_recent(event: MessageEvent, args: Message = CommandArg()):
+async def handle_steam_recent(bot: Bot, event: MessageEvent, args: Message = CommandArg()):
     """查询最近玩的游戏"""
     if not steam_api:
         await steam_recent.finish("❌ Steam功能未配置")
@@ -222,24 +235,45 @@ async def handle_steam_recent(event: MessageEvent, args: Message = CommandArg())
 
     steam_id = binding["steam_id"]
 
-    # 获取最近玩的游戏
+    # 获取QQ用户信息
+    qq_user_name = None
+    try:
+        if isinstance(event, GroupMessageEvent):
+            user_info = await bot.get_group_member_info(group_id=event.group_id, user_id=int(target_qq))
+            qq_user_name = user_info.get("card") or user_info.get("nickname", f"QQ{target_qq}")
+        else:
+            user_info = await bot.get_stranger_info(user_id=int(target_qq))
+            qq_user_name = user_info.get("nickname", f"QQ{target_qq}")
+    except:
+        qq_user_name = f"QQ{target_qq}"
+
+    # 获取Steam资料和最近玩的游戏
+    player_info = await steam_api.get_player_summaries(steam_id)
     games = await steam_api.get_recently_played_games(steam_id, 10)
+
     if not games:
         await steam_recent.finish("❌ 该用户最近没有玩游戏或游戏库未公开")
         return
 
-    # 构建消息
-    msg = f"🎮 最近玩的游戏（{len(games)}款）\n\n"
+    # 使用资料图片生成器（只显示游戏部分）
+    try:
+        if player_info:
+            img_base64 = generate_steam_profile_image_base64(player_info, games, qq_user_name)
+        else:
+            # 如果获取不到资料，使用文本格式
+            raise Exception("无法获取玩家资料")
+        await steam_recent.finish(MessageSegment.image(img_base64))
+    except Exception as e:
+        print(f"生成最近游戏图片失败: {e}")
+        # 降级为文本格式
+        msg = f"🎮 最近玩的游戏\n\nQQ用户: {qq_user_name}\n\n"
+        for i, game in enumerate(games, 1):
+            name = game.get("name", "未知游戏")
+            playtime_2weeks = game.get("playtime_2weeks", 0)
+            playtime_forever = game.get("playtime_forever", 0)
+            msg += f"{i}. {name}\n   最近：{format_playtime(playtime_2weeks)} | 总计：{format_playtime(playtime_forever)}\n"
 
-    for i, game in enumerate(games, 1):
-        name = game.get("name", "未知游戏")
-        playtime_2weeks = game.get("playtime_2weeks", 0)
-        playtime_forever = game.get("playtime_forever", 0)
-
-        msg += f"{i}. {name}\n"
-        msg += f"   最近：{format_playtime(playtime_2weeks)} | 总计：{format_playtime(playtime_forever)}\n"
-
-    await steam_recent.finish(msg.strip())
+        await steam_recent.finish(msg.strip())
 
 
 # Steam游戏库
@@ -247,7 +281,7 @@ steam_games = on_command("steam游戏库", aliases={"steam库存", "steamgames"}
 
 
 @steam_games.handle()
-async def handle_steam_games(event: MessageEvent, args: Message = CommandArg()):
+async def handle_steam_games(bot: Bot, event: MessageEvent, args: Message = CommandArg()):
     """查询游戏库"""
     if not steam_api:
         await steam_games.finish("❌ Steam功能未配置")
@@ -276,31 +310,42 @@ async def handle_steam_games(event: MessageEvent, args: Message = CommandArg()):
 
     steam_id = binding["steam_id"]
 
+    # 获取QQ用户信息
+    qq_user_name = None
+    try:
+        if isinstance(event, GroupMessageEvent):
+            user_info = await bot.get_group_member_info(group_id=event.group_id, user_id=int(target_qq))
+            qq_user_name = user_info.get("card") or user_info.get("nickname", f"QQ{target_qq}")
+        else:
+            user_info = await bot.get_stranger_info(user_id=int(target_qq))
+            qq_user_name = user_info.get("nickname", f"QQ{target_qq}")
+    except:
+        qq_user_name = f"QQ{target_qq}"
+
     # 获取游戏库
     games = await steam_api.get_owned_games(steam_id, include_appinfo=True)
     if not games:
         await steam_games.finish("❌ 该用户游戏库未公开或为空")
         return
 
-    # 统计信息
-    total_games = len(games)
-    total_playtime = sum(game.get("playtime_forever", 0) for game in games)
+    # 生成图片
+    try:
+        img_base64 = generate_steam_games_image_base64(games, qq_user_name)
+        await steam_games.finish(MessageSegment.image(img_base64))
+    except Exception as e:
+        print(f"生成游戏库图片失败: {e}")
+        # 降级为文本格式
+        total_games = len(games)
+        total_playtime = sum(game.get("playtime_forever", 0) for game in games)
+        games_sorted = sorted(games, key=lambda x: x.get("playtime_forever", 0), reverse=True)
 
-    # 按游戏时长排序
-    games_sorted = sorted(games, key=lambda x: x.get("playtime_forever", 0), reverse=True)
+        msg = f"📚 Steam游戏库\n\nQQ用户: {qq_user_name}\n游戏总数：{total_games} 款\n总游戏时长：{format_playtime(total_playtime)}\n\n🏆 TOP 10:\n"
+        for i, game in enumerate(games_sorted[:10], 1):
+            name = game.get("name", "未知游戏")
+            playtime = game.get("playtime_forever", 0)
+            msg += f"{i}. {name} - {format_playtime(playtime)}\n"
 
-    # 构建消息
-    msg = f"📚 Steam游戏库\n\n"
-    msg += f"游戏总数：{total_games} 款\n"
-    msg += f"总游戏时长：{format_playtime(total_playtime)}\n\n"
-    msg += "🏆 游戏时长TOP 10：\n\n"
-
-    for i, game in enumerate(games_sorted[:10], 1):
-        name = game.get("name", "未知游戏")
-        playtime = game.get("playtime_forever", 0)
-        msg += f"{i}. {name}\n   {format_playtime(playtime)}\n"
-
-    await steam_games.finish(msg.strip())
+        await steam_games.finish(msg.strip())
 
 
 # Steam视奸
