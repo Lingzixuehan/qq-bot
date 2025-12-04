@@ -3,12 +3,12 @@
 显示机器人所有功能的帮助信息
 """
 from nonebot import on_command
-from nonebot.adapters.onebot.v11 import GroupMessageEvent
+from nonebot.adapters.onebot.v11 import MessageEvent
 
 help_cmd = on_command("help", aliases={"帮助", "菜单", "功能"}, priority=1)
 
 @help_cmd.handle()
-async def handle_help(event: GroupMessageEvent):
+async def handle_help(event: MessageEvent):
     """显示帮助信息"""
     help_text = """
 🤖 QQ Bot 功能菜单

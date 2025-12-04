@@ -7,7 +7,7 @@
 - 详细模式：/roll 3d6 详细 - 显示每个骰子的点数
 """
 from nonebot import on_command
-from nonebot.adapters.onebot.v11 import GroupMessageEvent, Message
+from nonebot.adapters.onebot.v11 import MessageEvent, Message
 from nonebot.params import CommandArg
 import random
 import re
@@ -18,7 +18,7 @@ roll_dice = on_command("roll", aliases={"投骰子", "掷骰子", "扔骰子"}, 
 
 
 @roll_dice.handle()
-async def handle_roll_dice(event: GroupMessageEvent, args: Message = CommandArg()):
+async def handle_roll_dice(event: MessageEvent, args: Message = CommandArg()):
     """投骰子"""
     arg_text = args.extract_plain_text().strip()
     user_name = event.sender.card or event.sender.nickname or str(event.user_id)
@@ -100,7 +100,7 @@ d100 = on_command("d100", priority=5)
 
 
 @d6.handle()
-async def handle_d6(event: GroupMessageEvent):
+async def handle_d6(event: MessageEvent):
     """投一个6面骰子（快捷命令）"""
     user_name = event.sender.card or event.sender.nickname or str(event.user_id)
     result = random.randint(1, 6)
@@ -110,7 +110,7 @@ async def handle_d6(event: GroupMessageEvent):
 
 
 @d20.handle()
-async def handle_d20(event: GroupMessageEvent):
+async def handle_d20(event: MessageEvent):
     """投一个20面骰子（快捷命令）"""
     user_name = event.sender.card or event.sender.nickname or str(event.user_id)
     result = random.randint(1, 20)
@@ -127,7 +127,7 @@ async def handle_d20(event: GroupMessageEvent):
 
 
 @d100.handle()
-async def handle_d100(event: GroupMessageEvent):
+async def handle_d100(event: MessageEvent):
     """投一个百面骰子（快捷命令）"""
     user_name = event.sender.card or event.sender.nickname or str(event.user_id)
     result = random.randint(1, 100)
@@ -148,7 +148,7 @@ guess_dice = on_command("猜大小", aliases={"猜骰子"}, priority=5)
 
 
 @guess_dice.handle()
-async def handle_guess_dice(event: GroupMessageEvent, args: Message = CommandArg()):
+async def handle_guess_dice(event: MessageEvent, args: Message = CommandArg()):
     """猜大小游戏"""
     arg_text = args.extract_plain_text().strip().lower()
     user_name = event.sender.card or event.sender.nickname or str(event.user_id)
