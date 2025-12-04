@@ -55,8 +55,8 @@ async def handle_help(bot: Bot, event: MessageEvent):
 
 🎨 二次元美图
   /美图 - 随机获取一张二次元图片
-  /搜图 <关键词> - 根据关键词搜索图片
-  /来点图 [数量] - 获取多张图片（最多5张）
+  /搜图 - 随机获取一张二次元图片
+  /来点图 [数量] - 获取多张图片（最多3张）
 
 📖 其他
   /help - 显示本帮助信息
@@ -112,7 +112,7 @@ async def handle_help(bot: Bot, event: MessageEvent):
         MessageSegment.node_custom(
             user_id=bot_id,
             nickname=bot_name,
-            content="🎨 二次元美图\n\n/美图 - 随机获取一张二次元图片\n/搜图 <关键词> - 根据关键词搜索图片\n/来点图 [数量] - 获取多张图片（最多5张）\n\n💡 图片来源于Pixiv，全年龄向"
+            content="🎨 二次元美图\n\n/美图 - 随机获取一张二次元图片\n/搜图 - 随机获取一张二次元图片\n/来点图 [数量] - 获取多张图片（最多3张）\n\n💡 图片来源于多个API，全年龄向"
         ),
         MessageSegment.node_custom(
             user_id=bot_id,
