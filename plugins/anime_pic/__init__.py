@@ -7,6 +7,7 @@ from nonebot.adapters.onebot.v11 import MessageEvent, MessageSegment
 from nonebot.params import CommandArg
 from nonebot.adapters.onebot.v11 import Message
 from nonebot.exception import FinishedException
+from nonebot.log import logger
 import httpx
 import random
 
@@ -43,8 +44,10 @@ async def handle_random_pic(event: MessageEvent):
                 "page": random_page
             }
 
+            logger.info(f"[Danbooru] 请求随机图片，页码: {random_page}")
             async with httpx.AsyncClient(timeout=15, follow_redirects=True, headers=headers) as client:
                 response = await client.get(DANBOORU_API, params=params)
+                logger.info(f"[Danbooru] API响应状态码: {response.status_code}")
 
                 if response.status_code != 200:
                     await random_pic.finish(f"❌ 获取图片失败，状态码: {response.status_code}")
@@ -87,16 +90,17 @@ async def handle_random_pic(event: MessageEvent):
 
     except FinishedException:
         raise
-    except httpx.TimeoutException:
+    except httpx.TimeoutException as e:
+        logger.error(f"[美图] 请求超时: {e}")
         await random_pic.finish("❌ 请求超时，请稍后重试")
     except httpx.HTTPError as e:
-        print(f"HTTP错误: {e}")
-        await random_pic.finish("❌ 网络请求失败，请稍后重试")
+        logger.error(f"[美图] HTTP错误: {e}")
+        await random_pic.finish(f"❌ 网络请求失败: {str(e)[:100]}")
     except Exception as e:
-        print(f"获取图片失败: {e}")
+        logger.error(f"[美图] 获取图片失败: {e}")
         import traceback
         traceback.print_exc()
-        await random_pic.finish("❌ 获取图片时出错")
+        await random_pic.finish(f"❌ 获取图片时出错: {str(e)[:100]}")
 
 
 # 标签搜索图片
@@ -193,16 +197,17 @@ async def handle_search_pic(event: MessageEvent, args: Message = CommandArg()):
 
     except FinishedException:
         raise
-    except httpx.TimeoutException:
+    except httpx.TimeoutException as e:
+        logger.error(f"[搜图] 请求超时: {e}")
         await search_pic.finish("❌ 请求超时，请稍后重试")
     except httpx.HTTPError as e:
-        print(f"HTTP错误: {e}")
-        await search_pic.finish("❌ 网络请求失败，请稍后重试")
+        logger.error(f"[搜图] HTTP错误: {e}")
+        await search_pic.finish(f"❌ 网络请求失败: {str(e)[:100]}")
     except Exception as e:
-        print(f"搜索图片失败: {e}")
+        logger.error(f"[搜图] 搜索图片失败: {e}")
         import traceback
         traceback.print_exc()
-        await search_pic.finish("❌ 搜索图片时出错")
+        await search_pic.finish(f"❌ 搜索图片时出错: {str(e)[:100]}")
 
 
 # 多图模式
@@ -253,7 +258,7 @@ async def handle_multi_pic(event: MessageEvent, args: Message = CommandArg()):
                                 await multi_pic.send(MessageSegment.image(img_url))
                                 success_count += 1
                         except Exception as e:
-                            print(f"发送图片失败: {e}")
+                            logger.error(f"[来点图] 发送图片失败: {e}")
                             continue
         else:
             # 使用 LoliAPI
@@ -267,11 +272,11 @@ async def handle_multi_pic(event: MessageEvent, args: Message = CommandArg()):
                                 await multi_pic.send(MessageSegment.image(img_url))
                                 success_count += 1
                     except Exception as e:
-                        print(f"发送第{i+1}张图片失败: {e}")
+                        logger.error(f"[来点图] 发送第{i+1}张图片失败: {e}")
                         continue
 
     except Exception as e:
-        print(f"获取多图失败: {e}")
+        logger.error(f"[来点图] 获取多图失败: {e}")
 
     if success_count > 0:
         await multi_pic.finish(f"✅ 成功发送 {success_count}/{num} 张图片")
