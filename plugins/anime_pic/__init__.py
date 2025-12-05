@@ -29,14 +29,12 @@ async def handle_random_pic(event: MessageEvent):
 
             if response.status_code != 200:
                 await random_pic.finish(f"❌ 获取图片失败，状态码: {response.status_code}")
-                return
 
             data = response.json()
 
             # 检查返回状态
             if data.get("code") != "200":
                 await random_pic.finish(f"❌ API返回错误: {data.get('code')}")
-                return
 
             img_url = data.get("imgurl")
             width = data.get("width", "未知")
@@ -44,18 +42,22 @@ async def handle_random_pic(event: MessageEvent):
 
             if not img_url:
                 await random_pic.finish("❌ 未获取到图片链接")
-                return
 
-            # 发送图片信息和图片
-            msg = f"🎨 随机二次元美图\n📐 尺寸: {width}x{height}"
-            await random_pic.send(msg)
-            await random_pic.finish(MessageSegment.image(img_url))
+        # 发送图片信息和图片（在 try 块外，避免捕获 finish 的异常）
+        msg = f"🎨 随机二次元美图\n📐 尺寸: {width}x{height}"
+        await random_pic.send(msg)
+        await random_pic.finish(MessageSegment.image(img_url))
 
     except httpx.TimeoutException:
         await random_pic.finish("❌ 请求超时，请稍后重试")
+    except httpx.HTTPError as e:
+        print(f"HTTP错误: {e}")
+        await random_pic.finish("❌ 网络请求失败，请稍后重试")
     except Exception as e:
         print(f"获取图片失败: {e}")
-        await random_pic.finish(f"❌ 获取图片时出错: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        await random_pic.finish("❌ 获取图片时出错")
 
 
 # 多图模式
