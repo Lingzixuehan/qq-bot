@@ -31,11 +31,6 @@ random_pic = on_command("美图", aliases={"二次元", "来张图"}, priority=5
 async def handle_random_pic(event: MessageEvent):
     """获取随机二次元图片"""
     try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'application/json'
-        }
-
         if API_SOURCE == "danbooru":
             # 使用 Danbooru API - 使用随机页码代替 order:random
             random_page = random.randint(1, 1000)
@@ -48,11 +43,11 @@ async def handle_random_pic(event: MessageEvent):
             logger.info(f"[Danbooru] 请求随机图片，页码: {random_page}")
 
             # 使用 requests 库（通过 asyncio.to_thread 异步调用）
+            # 不设置headers，使用requests默认User-Agent
             response = await asyncio.to_thread(
                 requests.get,
                 DANBOORU_API,
                 params=params,
-                headers=headers,
                 timeout=15
             )
             logger.info(f"[Danbooru] API响应状态码: {response.status_code}")
@@ -83,7 +78,6 @@ async def handle_random_pic(event: MessageEvent):
             response = await asyncio.to_thread(
                 requests.get,
                 LOLI_API,
-                headers=headers,
                 timeout=15,
                 allow_redirects=True
             )
@@ -144,11 +138,6 @@ async def handle_search_pic(event: MessageEvent, args: Message = CommandArg()):
         return
 
     try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'application/json'
-        }
-
         if API_SOURCE == "danbooru":
             # 使用 Danbooru API 进行标签搜索 - 使用随机页码
             random_page = random.randint(1, 100)
@@ -160,11 +149,11 @@ async def handle_search_pic(event: MessageEvent, args: Message = CommandArg()):
             }
 
             # 使用 requests 库（通过 asyncio.to_thread 异步调用）
+            # 不设置headers，使用requests默认User-Agent
             response = await asyncio.to_thread(
                 requests.get,
                 DANBOORU_API,
                 params=params,
-                headers=headers,
                 timeout=15
             )
 
@@ -200,7 +189,6 @@ async def handle_search_pic(event: MessageEvent, args: Message = CommandArg()):
             response = await asyncio.to_thread(
                 requests.get,
                 LOLI_API,
-                headers=headers,
                 timeout=15,
                 allow_redirects=True
             )
@@ -250,11 +238,6 @@ async def handle_multi_pic(event: MessageEvent, args: Message = CommandArg()):
 
     await multi_pic.send(f"📦 正在获取 {num} 张图片...")
 
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'application/json'
-    }
-
     success_count = 0
 
     try:
@@ -268,11 +251,11 @@ async def handle_multi_pic(event: MessageEvent, args: Message = CommandArg()):
             }
 
             # 使用 requests 库（通过 asyncio.to_thread 异步调用）
+            # 不设置headers，使用requests默认User-Agent
             response = await asyncio.to_thread(
                 requests.get,
                 DANBOORU_API,
                 params=params,
-                headers=headers,
                 timeout=20
             )
 
@@ -297,7 +280,6 @@ async def handle_multi_pic(event: MessageEvent, args: Message = CommandArg()):
                     response = await asyncio.to_thread(
                         requests.get,
                         LOLI_API,
-                        headers=headers,
                         timeout=20,
                         allow_redirects=True
                     )
