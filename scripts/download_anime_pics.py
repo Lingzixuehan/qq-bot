@@ -152,7 +152,11 @@ class AnimeImageDownloader:
     async def _fetch_lolicon(self, api: Dict) -> Optional[Dict]:
         """从Lolicon API获取图片信息"""
         try:
-            async with httpx.AsyncClient(timeout=30) as client:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+                'Referer': 'https://www.pixiv.net/'
+            }
+            async with httpx.AsyncClient(timeout=30, headers=headers) as client:
                 response = await client.get(api["url"], params=api["params"])
                 if response.status_code == 200:
                     data = response.json()
@@ -177,7 +181,10 @@ class AnimeImageDownloader:
     async def _fetch_btstu(self, api: Dict) -> Optional[Dict]:
         """从搏天API获取图片信息"""
         try:
-            async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
+            }
+            async with httpx.AsyncClient(timeout=30, follow_redirects=True, headers=headers) as client:
                 response = await client.get(api["url"], params=api["params"])
                 if response.status_code == 200:
                     data = response.json()
@@ -198,7 +205,10 @@ class AnimeImageDownloader:
     async def _fetch_paugram(self, api: Dict) -> Optional[Dict]:
         """从保罗API获取图片信息"""
         try:
-            async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
+            }
+            async with httpx.AsyncClient(timeout=30, follow_redirects=True, headers=headers) as client:
                 response = await client.get(api["url"], params=api["params"])
                 if response.status_code == 200:
                     data = response.json()
@@ -219,7 +229,10 @@ class AnimeImageDownloader:
     async def _fetch_dmoe(self, api: Dict) -> Optional[Dict]:
         """从Dmoe API获取图片信息"""
         try:
-            async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
+            }
+            async with httpx.AsyncClient(timeout=30, follow_redirects=True, headers=headers) as client:
                 response = await client.get(api["url"], params=api["params"])
                 if response.status_code == 200:
                     data = response.json()
