@@ -57,7 +57,7 @@ async def handle_help(bot: Bot, event: MessageEvent):
   /美图 - 随机获取一张二次元图片
   /搜图 <标签> - 按标签搜索图片（支持英文标签）
   /来点图 [数量] - 获取多张图片（最多5张）
-  （来源：Danbooru，使用Pybooru库）
+  （来源：Waifu.im，4000+高质量图片）
 
 📖 其他
   /help - 显示本帮助信息
@@ -113,7 +113,7 @@ async def handle_help(bot: Bot, event: MessageEvent):
         MessageSegment.node_custom(
             user_id=bot_id,
             nickname=bot_name,
-            content="🎨 二次元美图\n\n/美图 - 随机获取一张二次元图片\n/搜图 <标签> - 按标签搜索图片\n/来点图 [数量] - 获取多张图片（最多5张）\n\n💡 图片来源于Danbooru（使用Pybooru库）\n💡 常用标签：maid, cat_girl, 1girl, original\n💡 示例：/搜图 maid 或 /搜图 cat_girl\n💡 多个单词用下划线连接"
+            content="🎨 二次元美图\n\n/美图 - 随机获取一张二次元图片\n/搜图 <标签> - 按标签搜索图片\n/来点图 [数量] - 获取多张图片（最多5张）\n\n💡 图片来源于Waifu.im (4000+ 高质量图片)\n💡 常用标签：maid, waifu, uniform, raiden-shogun\n💡 示例：/搜图 maid 或 /搜图 waifu"
         ),
         MessageSegment.node_custom(
             user_id=bot_id,
