@@ -35,10 +35,12 @@ async def handle_random_pic(event: MessageEvent):
         }
 
         if API_SOURCE == "danbooru":
-            # 使用 Danbooru API
+            # 使用 Danbooru API - 使用随机页码代替 order:random
+            random_page = random.randint(1, 1000)
             params = {
-                "tags": "rating:safe order:random",
-                "limit": 1
+                "tags": "rating:safe",
+                "limit": 20,
+                "page": random_page
             }
 
             async with httpx.AsyncClient(timeout=15, follow_redirects=True, headers=headers) as client:
@@ -51,7 +53,8 @@ async def handle_random_pic(event: MessageEvent):
                 if not data or len(data) == 0:
                     await random_pic.finish("❌ 没有找到图片")
 
-                post = data[0]
+                # 从获取的结果中随机选择一个
+                post = random.choice(data)
                 img_url = post.get('file_url') or post.get('large_file_url')
 
                 if not img_url:
@@ -130,11 +133,13 @@ async def handle_search_pic(event: MessageEvent, args: Message = CommandArg()):
         }
 
         if API_SOURCE == "danbooru":
-            # 使用 Danbooru API 进行标签搜索
-            search_tags = f"{keyword} rating:safe order:random"
+            # 使用 Danbooru API 进行标签搜索 - 使用随机页码
+            random_page = random.randint(1, 100)
+            search_tags = f"{keyword} rating:safe"
             params = {
                 "tags": search_tags,
-                "limit": 1
+                "limit": 20,
+                "page": random_page
             }
 
             async with httpx.AsyncClient(timeout=15, follow_redirects=True, headers=headers) as client:
@@ -150,7 +155,8 @@ async def handle_search_pic(event: MessageEvent, args: Message = CommandArg()):
                         "💡 试试其他标签或使用英文标签"
                     )
 
-                post = data[0]
+                # 从获取的结果中随机选择一个
+                post = random.choice(data)
                 img_url = post.get('file_url') or post.get('large_file_url')
 
                 if not img_url:
@@ -224,10 +230,12 @@ async def handle_multi_pic(event: MessageEvent, args: Message = CommandArg()):
 
     try:
         if API_SOURCE == "danbooru":
-            # 使用 Danbooru API
+            # 使用 Danbooru API - 使用随机页码
+            random_page = random.randint(1, 1000)
             params = {
-                "tags": "rating:safe order:random",
-                "limit": num
+                "tags": "rating:safe",
+                "limit": 20,
+                "page": random_page
             }
 
             async with httpx.AsyncClient(timeout=20, follow_redirects=True, headers=headers) as client:
@@ -235,8 +243,10 @@ async def handle_multi_pic(event: MessageEvent, args: Message = CommandArg()):
 
                 if response.status_code == 200:
                     data = response.json()
+                    # 从获取的20个结果中随机选择需要的数量
+                    selected_posts = random.sample(data, min(num, len(data))) if data else []
 
-                    for post in data[:num]:
+                    for post in selected_posts:
                         try:
                             img_url = post.get('file_url') or post.get('large_file_url')
                             if img_url:

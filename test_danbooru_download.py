@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
 import requests
+import random
 
 print("测试Danbooru图片下载流程...")
 print("="*60)
 
 try:
     # 1. 获取帖子列表
-    print("\n步骤1: 获取帖子列表...")
+    print("\n步骤1: 获取帖子列表（使用随机页码，避免order:random超时）...")
     api_url = "https://danbooru.donmai.us/posts.json"
+    random_page = random.randint(1, 1000)
     params = {
-        "tags": "rating:safe order:random",
-        "limit": 3
+        "tags": "rating:safe",
+        "limit": 20,
+        "page": random_page
     }
+    print(f"使用随机页码: {random_page}")
 
     r = requests.get(api_url, params=params, timeout=15)
     print(f"API状态码: {r.status_code}")
@@ -24,11 +28,15 @@ try:
     print(f"✅ 成功获取 {len(posts)} 个帖子")
 
     # 2. 下载图片
-    print("\n步骤2: 尝试下载图片...")
+    print("\n步骤2: 从结果中随机选择3张图片下载...")
     image_data_list = []
-    count = min(3, len(posts))
+    count = 3
 
-    for idx, post in enumerate(posts[:count], 1):
+    # 随机选择3个帖子
+    selected_posts = random.sample(posts, min(count, len(posts))) if posts else []
+    print(f"随机选择了 {len(selected_posts)} 个帖子")
+
+    for idx, post in enumerate(selected_posts, 1):
         print(f"\n--- 处理第 {idx} 张图片 ---")
         print(f"帖子ID: {post.get('id')}")
         print(f"评分: {post.get('score')}")
