@@ -98,7 +98,7 @@ async def handle_recall(bot: Bot, event: GroupRecallNoticeEvent):
     recall_time = datetime.now()
     time_diff = (recall_time - msg_data["time"]).total_seconds()
 
-    hint = f"🔔 {msg_data['user_name']} 撤回了一条消息\n"
+    hint = f"🔔 {msg_data['user_name']}({msg_data['user_id']}) 撤回了一条消息\n"
     hint += f"撤回者：{operator_info}\n"
     hint += f"撤回时间：{time_diff:.1f}秒后\n"
     hint += f"{'='*30}\n"

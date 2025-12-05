@@ -217,9 +217,6 @@ async def handle_multi_pic(event: MessageEvent, args: Message = CommandArg()):
                     try:
                         img_url = img.get("url")
                         if img_url:
-                            artist = img.get("artist", {})
-                            artist_name = artist.get("name", "未知") if artist else "未知"
-                            await multi_pic.send(f"[{i}/{num}] 🎨 {artist_name}")
                             await multi_pic.send(MessageSegment.image(img_url))
                             success_count += 1
                     except Exception as e:
