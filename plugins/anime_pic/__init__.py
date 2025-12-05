@@ -6,6 +6,7 @@ from nonebot import on_command
 from nonebot.adapters.onebot.v11 import MessageEvent, MessageSegment
 from nonebot.params import CommandArg
 from nonebot.adapters.onebot.v11 import Message
+from nonebot.exception import FinishedException
 import httpx
 
 
@@ -48,6 +49,9 @@ async def handle_random_pic(event: MessageEvent):
         await random_pic.send(msg)
         await random_pic.finish(MessageSegment.image(img_url))
 
+    except FinishedException:
+        # NoneBot2 的 finish() 异常，需要重新抛出让框架处理
+        raise
     except httpx.TimeoutException:
         await random_pic.finish("❌ 请求超时，请稍后重试")
     except httpx.HTTPError as e:
