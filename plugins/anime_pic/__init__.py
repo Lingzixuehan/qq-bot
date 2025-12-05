@@ -1,6 +1,6 @@
 """
 二次元美图插件
-使用 Danbooru API 获取随机二次元图片，支持标签搜索
+使用 Waifu.im API 获取随机二次元图片，支持标签搜索
 """
 from nonebot import on_command
 from nonebot.adapters.onebot.v11 import MessageEvent, MessageSegment
@@ -12,7 +12,7 @@ import random
 
 
 # API 配置
-DANBOORU_API = "https://danbooru.donmai.us/posts.json"
+WAIFU_API = "https://api.waifu.im/search"
 
 
 # 随机美图
@@ -23,52 +23,48 @@ random_pic = on_command("美图", aliases={"二次元", "来张图"}, priority=5
 async def handle_random_pic(event: MessageEvent):
     """获取随机二次元图片"""
     try:
-        # Danbooru API 参数
+        # Waifu.im API 参数
         params = {
-            "tags": "rating:safe order:random",  # 安全内容 + 随机排序
-            "limit": 1
+            "is_nsfw": "false"  # 只要安全内容
         }
 
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'application/json',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Referer': 'https://danbooru.donmai.us/'
+            'Accept': 'application/json'
         }
 
         async with httpx.AsyncClient(timeout=15, follow_redirects=True, headers=headers) as client:
-            response = await client.get(DANBOORU_API, params=params)
+            response = await client.get(WAIFU_API, params=params)
 
             if response.status_code != 200:
                 await random_pic.finish(f"❌ 获取图片失败，状态码: {response.status_code}")
 
             data = response.json()
+            images = data.get("images", [])
 
-            if not data or len(data) == 0:
+            if not images:
                 await random_pic.finish("❌ 没有找到图片")
 
             # 获取第一张图片
-            post = data[0]
-            img_url = post.get("file_url")
+            img = images[0]
+            img_url = img.get("url")
 
             if not img_url:
                 await random_pic.finish("❌ 图片链接无效")
 
             # 提取信息
-            tags = post.get("tag_string", "").split()[:5]  # 前5个标签
-            rating = post.get("rating", "")
-            post_id = post.get("id", "")
-
-            # 评级说明
-            rating_map = {"s": "安全", "q": "问题", "e": "限制"}
-            rating_text = rating_map.get(rating, "未知")
+            tags = [tag.get("name") for tag in img.get("tags", [])[:5]]
+            artist = img.get("artist", {})
+            artist_name = artist.get("name", "未知") if artist else "未知"
+            width = img.get("width", "未知")
+            height = img.get("height", "未知")
 
         # 发送图片信息和图片
-        msg = f"🎨 Danbooru 随机图片\n"
-        msg += f"🆔 ID: {post_id}\n"
-        msg += f"🔰 评级: {rating_text}\n"
+        msg = f"🎨 Waifu.im 随机图片\n"
+        msg += f"👤 画师: {artist_name}\n"
+        msg += f"📐 尺寸: {width}x{height}\n"
         if tags:
-            msg += f"🏷️ 标签: {', '.join(tags[:3])}"
+            msg += f"🏷️ 标签: {', '.join(tags)}"
 
         await random_pic.send(msg)
         await random_pic.finish(MessageSegment.image(img_url))
@@ -100,67 +96,67 @@ async def handle_search_pic(event: MessageEvent, args: Message = CommandArg()):
         await search_pic.finish(
             "用法：/搜图 <标签>\n\n"
             "示例：\n"
-            "/搜图 cat_girl\n"
-            "/搜图 original\n"
-            "/搜图 1girl solo\n\n"
-            "💡 可以使用多个标签（空格分隔）\n"
-            "💡 免费用户最多2个标签\n"
-            "💡 使用英文标签效果更好"
+            "/搜图 maid\n"
+            "/搜图 waifu\n"
+            "/搜图 uniform\n\n"
+            "💡 可用标签：maid, waifu, marin-kitagawa, mori-calliope, \n"
+            "    raiden-shogun, oppai, selfies, uniform 等\n"
+            "💡 使用英文标签，多个标签用空格分隔"
         )
         return
 
     try:
-        # 处理标签（用空格分隔）
-        tags = keyword.replace("，", " ").replace(",", " ")
-        search_tags = f"{tags} rating:safe order:random"
+        # 处理标签（空格分隔）
+        tags = keyword.replace("，", ",").replace(",", " ").strip().split()
 
         params = {
-            "tags": search_tags,
-            "limit": 1
+            "is_nsfw": "false"
         }
+
+        # 添加所有标签
+        if tags:
+            params["included_tags"] = tags
 
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'application/json',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Referer': 'https://danbooru.donmai.us/'
+            'Accept': 'application/json'
         }
 
         async with httpx.AsyncClient(timeout=15, follow_redirects=True, headers=headers) as client:
-            response = await client.get(DANBOORU_API, params=params)
+            response = await client.get(WAIFU_API, params=params)
 
             if response.status_code != 200:
                 await search_pic.finish(f"❌ 获取图片失败，状态码: {response.status_code}")
 
             data = response.json()
+            images = data.get("images", [])
 
-            if not data or len(data) == 0:
+            if not images:
                 await search_pic.finish(
                     f"❌ 没有找到包含 '{keyword}' 的图片\n\n"
-                    "💡 试试其他标签或使用英文标签"
+                    "💡 试试其他标签，如：maid, waifu, uniform"
                 )
 
             # 获取图片
-            post = data[0]
-            img_url = post.get("file_url")
+            img = images[0]
+            img_url = img.get("url")
 
             if not img_url:
                 await search_pic.finish("❌ 图片链接无效")
 
             # 提取信息
-            all_tags = post.get("tag_string", "").split()
-            rating = post.get("rating", "")
-            post_id = post.get("id", "")
-            score = post.get("score", 0)
-
-            rating_map = {"s": "安全", "q": "问题", "e": "限制"}
-            rating_text = rating_map.get(rating, "未知")
+            all_tags = [tag.get("name") for tag in img.get("tags", [])]
+            artist = img.get("artist", {})
+            artist_name = artist.get("name", "未知") if artist else "未知"
+            width = img.get("width", "未知")
+            height = img.get("height", "未知")
+            favorites = img.get("favorites", 0)
 
         # 发送信息
         msg = f"🔍 搜索: {keyword}\n\n"
-        msg += f"🆔 ID: {post_id}\n"
-        msg += f"⭐ 评分: {score}\n"
-        msg += f"🔰 评级: {rating_text}\n"
+        msg += f"👤 画师: {artist_name}\n"
+        msg += f"📐 尺寸: {width}x{height}\n"
+        msg += f"❤️ 收藏: {favorites}\n"
         if all_tags:
             msg += f"🏷️ 标签: {', '.join(all_tags[:5])}"
 
@@ -198,29 +194,32 @@ async def handle_multi_pic(event: MessageEvent, args: Message = CommandArg()):
     await multi_pic.send(f"📦 正在获取 {num} 张图片...")
 
     params = {
-        "tags": "rating:safe order:random",
-        "limit": num
+        "is_nsfw": "false",
+        "many": str(num)  # 一次请求多张
     }
 
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json'
     }
 
     success_count = 0
 
     try:
         async with httpx.AsyncClient(timeout=20, follow_redirects=True, headers=headers) as client:
-            response = await client.get(DANBOORU_API, params=params)
+            response = await client.get(WAIFU_API, params=params)
 
             if response.status_code == 200:
                 data = response.json()
+                images = data.get("images", [])
 
-                for i, post in enumerate(data[:num], 1):
+                for i, img in enumerate(images[:num], 1):
                     try:
-                        img_url = post.get("file_url")
+                        img_url = img.get("url")
                         if img_url:
-                            post_id = post.get("id", "")
-                            await multi_pic.send(f"[{i}/{num}] 🎨 ID: {post_id}")
+                            artist = img.get("artist", {})
+                            artist_name = artist.get("name", "未知") if artist else "未知"
+                            await multi_pic.send(f"[{i}/{num}] 🎨 {artist_name}")
                             await multi_pic.send(MessageSegment.image(img_url))
                             success_count += 1
                     except Exception as e:
