@@ -27,7 +27,7 @@ async def handle_draw_waifu(bot: Bot, event: GroupMessageEvent):
     # 检查今天是否已经抽过
     existing = await WaifuDB.get_waifu(group_id, user_id)
     if existing:
-        msg = f"你今天的老婆是：{MessageSegment.at(existing['waifu_id'])}\n"
+        msg = MessageSegment.at(user_id) + f" 今天的老婆是：{MessageSegment.at(existing['waifu_id'])}\n"
         msg += "💕 今天已经抽过了哦，明天再来吧！"
         await draw_waifu.finish(msg)
         return
@@ -77,14 +77,14 @@ async def handle_draw_waifu(bot: Bot, event: GroupMessageEvent):
 
     # 构建消息
     messages = [
-        "💝 恭喜你抽到了今天的老婆！",
+        "💝 恭喜抽到了今天的老婆！",
         "🎉 抽老婆成功！",
         "💕 今天的缘分是...",
         "✨ 命运的红线牵引着你们...",
     ]
 
-    msg = random.choice(messages)
-    msg += f"\n\n{MessageSegment.at(waifu_id)}\n"
+    msg = MessageSegment.at(user_id) + " " + random.choice(messages)
+    msg += f"\n\n{MessageSegment.at(user_id)} 的老婆是 {MessageSegment.at(waifu_id)}\n"
     msg += f"💖 {waifu_name} 💖\n"
     msg += "记得好好对待你的老婆哦～"
 
@@ -103,8 +103,8 @@ async def handle_check_waifu(event: GroupMessageEvent):
     waifu = await WaifuDB.get_waifu(group_id, user_id)
 
     if waifu:
-        msg = f"你今天的老婆是：\n{MessageSegment.at(waifu['waifu_id'])}\n"
+        msg = MessageSegment.at(user_id) + f" 今天的老婆是：\n{MessageSegment.at(waifu['waifu_id'])}\n"
         msg += f"💖 {waifu['waifu_name']} 💖"
         await check_waifu.finish(msg)
     else:
-        await check_waifu.finish("你还没有抽老婆哦，快发送 /抽老婆 来抽一位吧！")
+        await check_waifu.finish(MessageSegment.at(user_id) + " 还没有抽老婆哦，快发送 /抽老婆 来抽一位吧！")
