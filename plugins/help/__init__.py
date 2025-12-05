@@ -55,6 +55,7 @@ async def handle_help(bot: Bot, event: MessageEvent):
 
 🎨 二次元美图
   /美图 - 随机获取一张二次元图片
+  /搜图 <标签> - 按标签搜索图片（支持英文标签）
   /来点图 [数量] - 获取多张图片（最多5张）
 
 📖 其他
@@ -111,7 +112,7 @@ async def handle_help(bot: Bot, event: MessageEvent):
         MessageSegment.node_custom(
             user_id=bot_id,
             nickname=bot_name,
-            content="🎨 二次元美图\n\n/美图 - 随机获取一张二次元图片\n/来点图 [数量] - 获取多张图片（最多5张）\n\n💡 图片来源于dmoe.cc，全年龄向"
+            content="🎨 二次元美图\n\n/美图 - 随机获取一张二次元图片\n/搜图 <标签> - 按标签搜索图片\n/来点图 [数量] - 获取多张图片（最多5张）\n\n💡 图片来源于Danbooru，支持英文标签搜索\n💡 示例：/搜图 cat_girl 或 /搜图 1girl solo"
         ),
         MessageSegment.node_custom(
             user_id=bot_id,
