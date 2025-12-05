@@ -30,7 +30,10 @@ async def handle_random_pic(event: MessageEvent):
         }
 
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Referer': 'https://danbooru.donmai.us/'
         }
 
         async with httpx.AsyncClient(timeout=15, follow_redirects=True, headers=headers) as client:
@@ -117,7 +120,10 @@ async def handle_search_pic(event: MessageEvent, args: Message = CommandArg()):
         }
 
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Referer': 'https://danbooru.donmai.us/'
         }
 
         async with httpx.AsyncClient(timeout=15, follow_redirects=True, headers=headers) as client:
