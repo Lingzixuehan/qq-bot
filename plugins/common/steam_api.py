@@ -232,11 +232,7 @@ def format_playtime(minutes: int) -> str:
         return f"{minutes}分钟"
 
     hours = minutes / 60
-    if hours < 24:
-        return f"{hours:.1f}小时"
-
-    days = hours / 24
-    return f"{days:.1f}天"
+    return f"{hours:.1f}h"
 
 
 def get_player_state_text(state: int) -> str:
