@@ -35,6 +35,7 @@ RATE_LIMIT_WHITELIST = set()
 whitelist_str = getattr(config, "search_pic_whitelist", "")
 if whitelist_str:
     # 格式：QQ号,QQ号,QQ号
+    whitelist_str = str(whitelist_str)  # 确保是字符串类型
     RATE_LIMIT_WHITELIST = set(uid.strip() for uid in whitelist_str.split(",") if uid.strip())
 
 # 频率限制数据：{群号: {用户ID: {"count": 次数, "reset_time": 重置时间}}}
