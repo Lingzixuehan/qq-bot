@@ -35,8 +35,9 @@ async def handle_help(bot: Bot, event: MessageEvent):
   /签到排行 - 查看今日签到排行榜
 
 🔔 防撤回
-  自动功能 - 有人撤回消息时自动提醒
-  会显示撤回的内容（文字、图片等）
+  /防撤回 - 查看最近一条撤回的消息
+  /防撤回 @某人 - 查看某人最近撤回的消息
+  （支持文字、图片、表情等）
 
 🎲 投骰子
   /roll - 投一个6面骰子
@@ -105,7 +106,7 @@ async def handle_help(bot: Bot, event: MessageEvent):
         MessageSegment.node_custom(
             user_id=bot_id,
             nickname=bot_name,
-            content="🔔 防撤回\n\n自动功能 - 有人撤回消息时自动提醒\n会显示撤回的内容（文字、图片等）"
+            content="🔔 防撤回\n\n/防撤回 - 查看最近一条撤回的消息\n/防撤回 @某人 - 查看某人最近撤回的消息\n\n💡 支持文字、图片、表情等多种消息类型"
         ),
         MessageSegment.node_custom(
             user_id=bot_id,
