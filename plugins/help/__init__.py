@@ -57,7 +57,7 @@ async def handle_help(bot: Bot, event: MessageEvent):
   /美图 - 随机获取一张二次元图片
   /搜图 <标签> - 按标签搜索图片
   /来点图 [数量] - 获取多张图片（最多5张）
-  （API可配置：LoliAPI或Danbooru）
+  （支持4个API：LoliAPI、Safebooru、Lolicon、Danbooru）
 
 📖 其他
   /help - 显示本帮助信息
@@ -113,7 +113,7 @@ async def handle_help(bot: Bot, event: MessageEvent):
         MessageSegment.node_custom(
             user_id=bot_id,
             nickname=bot_name,
-            content="🎨 二次元美图\n\n/美图 - 随机获取一张二次元图片\n/搜图 <标签> - 按标签搜索图片\n/来点图 [数量] - 获取多张图片（最多5张）\n\n💡 支持双API：LoliAPI（默认）或 Danbooru\n💡 LoliAPI: 简单稳定，699+图片\n💡 Danbooru: 海量图片，强大标签搜索\n💡 在.env文件中配置 ANIME_PIC_API 切换"
+            content="🎨 二次元美图\n\n/美图 - 随机获取一张二次元图片\n/搜图 <标签> - 按标签搜索图片\n/来点图 [数量] - 获取多张图片（最多5张）\n\n💡 支持4个API源，在.env中配置 ANIME_PIC_API 切换：\n• loli - LoliAPI（默认），简单稳定\n• safebooru - Safebooru，默认安全过滤\n• lolicon - Lolicon，Pixiv源，支持中英文标签\n• danbooru - Danbooru，海量图片，英文标签"
         ),
         MessageSegment.node_custom(
             user_id=bot_id,
