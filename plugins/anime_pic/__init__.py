@@ -30,6 +30,13 @@ if rate_limit_str:
             group_id, limit = item.strip().split(":")
             RATE_LIMIT_CONFIG[group_id.strip()] = int(limit.strip())
 
+# 白名单配置（不受频率限制的QQ号）
+RATE_LIMIT_WHITELIST = set()
+whitelist_str = getattr(config, "search_pic_whitelist", "")
+if whitelist_str:
+    # 格式：QQ号,QQ号,QQ号
+    RATE_LIMIT_WHITELIST = set(uid.strip() for uid in whitelist_str.split(",") if uid.strip())
+
 # 频率限制数据：{群号: {用户ID: {"count": 次数, "reset_time": 重置时间}}}
 rate_limit_data = {}
 
@@ -48,6 +55,10 @@ def check_rate_limit(group_id: str, user_id: str) -> tuple[bool, int, int]:
     检查频率限制
     返回：(是否允许, 已使用次数, 限制次数)
     """
+    # 白名单用户不受限制
+    if user_id in RATE_LIMIT_WHITELIST:
+        return True, 0, 0
+
     if group_id not in RATE_LIMIT_CONFIG:
         return True, 0, 0  # 不限制
 
