@@ -4,7 +4,7 @@
 可通过配置切换
 """
 from nonebot import on_command, get_driver
-from nonebot.adapters.onebot.v11 import MessageEvent, MessageSegment
+from nonebot.adapters.onebot.v11 import MessageEvent, MessageSegment, GroupMessageEvent
 from nonebot.params import CommandArg
 from nonebot.adapters.onebot.v11 import Message
 from nonebot.exception import FinishedException
@@ -12,12 +12,26 @@ from nonebot.log import logger
 import requests
 import asyncio
 import random
+from datetime import datetime, timedelta
 
 
 # 获取配置
 driver = get_driver()
 config = driver.config
 DEFAULT_API = getattr(config, "anime_pic_api", "lolicon").lower()
+
+# 频率限制配置
+RATE_LIMIT_CONFIG = {}
+rate_limit_str = getattr(config, "search_pic_rate_limit_groups", "")
+if rate_limit_str:
+    # 格式：群号:次数,群号:次数
+    for item in rate_limit_str.split(","):
+        if ":" in item:
+            group_id, limit = item.strip().split(":")
+            RATE_LIMIT_CONFIG[group_id.strip()] = int(limit.strip())
+
+# 频率限制数据：{群号: {用户ID: {"count": 次数, "reset_time": 重置时间}}}
+rate_limit_data = {}
 
 # API 配置
 LOLI_API = "https://www.loliapi.com/bg/"
@@ -27,6 +41,46 @@ LOLICON_API = "https://api.lolicon.app/setu/v2"
 
 # 支持的API列表
 SUPPORTED_APIS = ["loli", "safebooru", "lolicon", "danbooru"]
+
+
+def check_rate_limit(group_id: str, user_id: str) -> tuple[bool, int, int]:
+    """
+    检查频率限制
+    返回：(是否允许, 已使用次数, 限制次数)
+    """
+    if group_id not in RATE_LIMIT_CONFIG:
+        return True, 0, 0  # 不限制
+
+    limit = RATE_LIMIT_CONFIG[group_id]
+    now = datetime.now()
+
+    # 初始化群数据
+    if group_id not in rate_limit_data:
+        rate_limit_data[group_id] = {}
+
+    # 初始化用户数据或检查重置时间
+    if user_id not in rate_limit_data[group_id]:
+        rate_limit_data[group_id][user_id] = {
+            "count": 0,
+            "reset_time": now + timedelta(hours=1)
+        }
+    else:
+        user_data = rate_limit_data[group_id][user_id]
+        # 检查是否需要重置
+        if now >= user_data["reset_time"]:
+            user_data["count"] = 0
+            user_data["reset_time"] = now + timedelta(hours=1)
+
+    user_data = rate_limit_data[group_id][user_id]
+    used = user_data["count"]
+
+    return used < limit, used, limit
+
+
+def increment_usage(group_id: str, user_id: str):
+    """增加使用次数"""
+    if group_id in rate_limit_data and user_id in rate_limit_data[group_id]:
+        rate_limit_data[group_id][user_id]["count"] += 1
 
 
 # 随机美图
@@ -205,6 +259,21 @@ search_pic = on_command("搜图", aliases={"找图", "图片搜索"}, priority=5
 @search_pic.handle()
 async def handle_search_pic(event: MessageEvent, args: Message = CommandArg()):
     """根据标签搜索图片"""
+    # 频率限制检查（仅群聊）
+    if isinstance(event, GroupMessageEvent):
+        group_id = str(event.group_id)
+        user_id = str(event.user_id)
+
+        allowed, used, limit = check_rate_limit(group_id, user_id)
+        if not allowed:
+            remaining_time = rate_limit_data[group_id][user_id]["reset_time"] - datetime.now()
+            minutes = int(remaining_time.total_seconds() / 60)
+            await search_pic.finish(
+                f"⏰ 搜图次数已用完\n"
+                f"📊 已使用: {used}/{limit} 次\n"
+                f"⏱️ 重置时间: {minutes}分钟后"
+            )
+
     arg_text = args.extract_plain_text().strip()
 
     # 解析参数：关键词和API源
@@ -404,6 +473,16 @@ async def handle_search_pic(event: MessageEvent, args: Message = CommandArg()):
 
             msg = f"🔍 搜索: {keyword}\n"
             msg += "💡 LoliAPI暂不支持标签搜索，返回随机图片"
+
+        # 搜图成功，增加使用次数（仅群聊且有限制）
+        if isinstance(event, GroupMessageEvent):
+            group_id = str(event.group_id)
+            user_id = str(event.user_id)
+            if group_id in RATE_LIMIT_CONFIG:
+                increment_usage(group_id, user_id)
+                # 获取剩余次数
+                _, used, limit = check_rate_limit(group_id, user_id)
+                msg += f"\n\n💡 剩余次数: {limit - used}/{limit}"
 
         await search_pic.send(msg)
         await search_pic.finish(MessageSegment.image(img_url))
