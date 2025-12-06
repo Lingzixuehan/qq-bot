@@ -54,10 +54,17 @@ async def handle_help(bot: Bot, event: MessageEvent):
   /steam视奸 - 查看所有人的Steam在线状态
 
 🎨 二次元美图
-  /美图 - 随机获取一张二次元图片
-  /搜图 <标签> - 按标签搜索图片
-  /来点图 [数量] - 获取多张图片（最多5张）
-  （支持4个API：LoliAPI、Safebooru、Lolicon、Danbooru）
+  /美图 [API源] - 随机获取一张二次元图片
+  /搜图 <标签> [API源] - 按标签搜索图片
+  /来点图 [数量] [API源] - 获取多张图片（最多5张）
+
+  示例：
+  /美图 - 使用默认API（lolicon）
+  /美图 safebooru - 使用Safebooru API
+  /搜图 touhou danbooru - 用Danbooru搜索
+  /来点图 3 lolicon - 用Lolicon获取3张
+
+  API源：loli, safebooru, lolicon（默认）, danbooru
 
 📖 其他
   /help - 显示本帮助信息
@@ -113,7 +120,7 @@ async def handle_help(bot: Bot, event: MessageEvent):
         MessageSegment.node_custom(
             user_id=bot_id,
             nickname=bot_name,
-            content="🎨 二次元美图\n\n/美图 - 随机获取一张二次元图片\n/搜图 <标签> - 按标签搜索图片\n/来点图 [数量] - 获取多张图片（最多5张）\n\n💡 支持4个API源，在.env中配置 ANIME_PIC_API 切换：\n• loli - LoliAPI（默认），简单稳定\n• safebooru - Safebooru，默认安全过滤\n• lolicon - Lolicon，Pixiv源，支持中英文标签\n• danbooru - Danbooru，海量图片，英文标签"
+            content="🎨 二次元美图\n\n/美图 [API源] - 随机获取一张二次元图片\n/搜图 <标签> [API源] - 按标签搜索图片\n/来点图 [数量] [API源] - 获取多张图片（最多5张）\n\n📝 示例：\n• /美图 - 默认API（lolicon）\n• /美图 safebooru - 指定Safebooru\n• /搜图 touhou danbooru - 用Danbooru搜索\n• /来点图 3 lolicon - 用Lolicon获取3张\n\n💡 支持4个API源：\n• loli - LoliAPI，简单稳定\n• safebooru - Safebooru，安全过滤\n• lolicon - Lolicon，Pixiv源（默认）\n• danbooru - Danbooru，海量图片"
         ),
         MessageSegment.node_custom(
             user_id=bot_id,

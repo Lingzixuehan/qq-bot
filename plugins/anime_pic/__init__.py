@@ -17,7 +17,7 @@ import random
 # 获取配置
 driver = get_driver()
 config = driver.config
-API_SOURCE = getattr(config, "anime_pic_api", "loli").lower()
+DEFAULT_API = getattr(config, "anime_pic_api", "lolicon").lower()
 
 # API 配置
 LOLI_API = "https://www.loliapi.com/bg/"
@@ -25,16 +25,23 @@ DANBOORU_API = "https://danbooru.donmai.us/posts.json"
 SAFEBOORU_API = "https://safebooru.org/index.php"
 LOLICON_API = "https://api.lolicon.app/setu/v2"
 
+# 支持的API列表
+SUPPORTED_APIS = ["loli", "safebooru", "lolicon", "danbooru"]
+
 
 # 随机美图
 random_pic = on_command("美图", aliases={"二次元", "来张图"}, priority=5)
 
 
 @random_pic.handle()
-async def handle_random_pic(event: MessageEvent):
+async def handle_random_pic(event: MessageEvent, args: Message = CommandArg()):
     """获取随机二次元图片"""
+    # 解析API源参数
+    arg_text = args.extract_plain_text().strip().lower()
+    api_source = arg_text if arg_text in SUPPORTED_APIS else DEFAULT_API
+
     try:
-        if API_SOURCE == "safebooru":
+        if api_source == "safebooru":
             # 使用 Safebooru API
             random_page = random.randint(0, 200)
             params = {
@@ -75,7 +82,7 @@ async def handle_random_pic(event: MessageEvent):
 
             msg = f"🎨 Safebooru 随机图片\n🆔 ID: {post_id}\n⭐ 评分: {score}"
 
-        elif API_SOURCE == "lolicon":
+        elif api_source == "lolicon":
             # 使用 Lolicon API
             payload = {
                 "r18": 0,
@@ -115,7 +122,7 @@ async def handle_random_pic(event: MessageEvent):
 
             msg = f"🎨 Lolicon 随机图片\n🆔 PID: {pid}\n📝 {title}\n👤 {author}"
 
-        elif API_SOURCE == "danbooru":
+        elif api_source == "danbooru":
             # 使用 Danbooru API - 使用随机页码代替 order:random
             random_page = random.randint(1, 1000)
             params = {
@@ -198,10 +205,24 @@ search_pic = on_command("搜图", aliases={"找图", "图片搜索"}, priority=5
 @search_pic.handle()
 async def handle_search_pic(event: MessageEvent, args: Message = CommandArg()):
     """根据标签搜索图片"""
-    keyword = args.extract_plain_text().strip()
+    arg_text = args.extract_plain_text().strip()
+
+    # 解析参数：关键词和API源
+    parts = arg_text.split()
+    if not parts:
+        keyword = ""
+        api_source = DEFAULT_API
+    elif parts[-1].lower() in SUPPORTED_APIS:
+        # 最后一个参数是API源
+        api_source = parts[-1].lower()
+        keyword = " ".join(parts[:-1])
+    else:
+        # 没有指定API源
+        keyword = arg_text
+        api_source = DEFAULT_API
 
     if not keyword:
-        if API_SOURCE in ["safebooru", "danbooru"]:
+        if api_source in ["safebooru", "danbooru"]:
             await search_pic.finish(
                 "用法：/搜图 <标签>\n\n"
                 "示例：\n"
@@ -210,7 +231,7 @@ async def handle_search_pic(event: MessageEvent, args: Message = CommandArg()):
                 "/搜图 maid\n\n"
                 "💡 使用英文标签，空格分隔多个标签"
             )
-        elif API_SOURCE == "lolicon":
+        elif api_source == "lolicon":
             await search_pic.finish(
                 "用法：/搜图 <标签>\n\n"
                 "示例：\n"
@@ -227,7 +248,7 @@ async def handle_search_pic(event: MessageEvent, args: Message = CommandArg()):
         return
 
     try:
-        if API_SOURCE == "safebooru":
+        if api_source == "safebooru":
             # 使用 Safebooru API - 支持关键词搜索 + 默认过滤
             random_page = random.randint(0, 100)
             search_tags = f"{keyword} rating:safe score:>=10"
@@ -271,7 +292,7 @@ async def handle_search_pic(event: MessageEvent, args: Message = CommandArg()):
             msg += f"🆔 ID: {post_id}\n"
             msg += f"⭐ 评分: {score}"
 
-        elif API_SOURCE == "lolicon":
+        elif api_source == "lolicon":
             # 使用 Lolicon API - 支持标签搜索
             payload = {
                 "r18": 0,
@@ -318,7 +339,7 @@ async def handle_search_pic(event: MessageEvent, args: Message = CommandArg()):
             if tags:
                 msg += f"\n🏷️ {', '.join(tags)}"
 
-        elif API_SOURCE == "danbooru":
+        elif api_source == "danbooru":
             # 使用 Danbooru API 进行标签搜索 - 使用随机页码
             random_page = random.randint(1, 100)
             search_tags = f"{keyword} rating:safe"
@@ -409,19 +430,34 @@ multi_pic = on_command("来点图", aliases={"多来点", "美图x3"}, priority=
 @multi_pic.handle()
 async def handle_multi_pic(event: MessageEvent, args: Message = CommandArg()):
     """获取多张随机图片（最多5张）"""
-    # 解析数量
+    # 解析参数：数量和API源
     arg_text = args.extract_plain_text().strip()
-    num = 3  # 默认3张
+    parts = arg_text.split()
 
-    if arg_text.isdigit():
-        num = min(int(arg_text), 5)  # 最多5张
+    num = 3  # 默认3张
+    api_source = DEFAULT_API
+
+    if not parts:
+        pass  # 使用默认值
+    elif len(parts) == 1:
+        # 只有一个参数
+        if parts[0].isdigit():
+            num = min(int(parts[0]), 5)
+        elif parts[0].lower() in SUPPORTED_APIS:
+            api_source = parts[0].lower()
+    elif len(parts) >= 2:
+        # 两个参数：数量 + API源
+        if parts[0].isdigit():
+            num = min(int(parts[0]), 5)
+        if parts[1].lower() in SUPPORTED_APIS:
+            api_source = parts[1].lower()
 
     await multi_pic.send(f"📦 正在获取 {num} 张图片...")
 
     success_count = 0
 
     try:
-        if API_SOURCE == "safebooru":
+        if api_source == "safebooru":
             # 使用 Safebooru API
             random_page = random.randint(0, 200)
             params = {
@@ -456,7 +492,7 @@ async def handle_multi_pic(event: MessageEvent, args: Message = CommandArg()):
                             logger.error(f"[来点图] 发送图片失败: {e}")
                             continue
 
-        elif API_SOURCE == "lolicon":
+        elif api_source == "lolicon":
             # 使用 Lolicon API - 一次请求多张
             payload = {
                 "r18": 0,
@@ -486,7 +522,7 @@ async def handle_multi_pic(event: MessageEvent, args: Message = CommandArg()):
                         logger.error(f"[来点图] 发送图片失败: {e}")
                         continue
 
-        elif API_SOURCE == "danbooru":
+        elif api_source == "danbooru":
             # 使用 Danbooru API - 使用随机页码
             random_page = random.randint(1, 1000)
             params = {
