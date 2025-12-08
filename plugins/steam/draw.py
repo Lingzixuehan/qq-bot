@@ -1313,7 +1313,9 @@ def draw_game_price_info(
     price_section_height = len(prices) * price_row_height + 80
     # 史低区域：标题(40) + 价格(35) + 日期(可选，35+30) + 提示(可选，35) + 边距(20)
     low_section_height = 0
-    if historical_low:
+    has_historical_low = historical_low is not None
+    if has_historical_low or historical_low_date:
+        # 当史低价格为 0（例如限免）时也需要显示史低信息
         low_section_height = 115  # 基础高度
         if historical_low_date:
             low_section_height += 65  # 日期行
@@ -1443,16 +1445,17 @@ def draw_game_price_info(
         y_offset += price_row_height
 
     # 史低价格
-    if historical_low:
+    if has_historical_low or historical_low_date:
         y_offset += 20
         low_title_font = get_font(FONT_SIZE_LARGE, "bold")
         draw.text((padding, y_offset), "📉 历史最低价", font=low_title_font, fill=(255, 255, 255, 255))
         y_offset += 40
 
         # 史低价格
-        low_symbol = {"CNY": "¥", "USD": "$", "EUR": "€"}.get(historical_low_currency, historical_low_currency + " ")
-        low_price_text = f"{low_symbol}{historical_low:.2f}"
-        draw.text((padding + 20, y_offset), low_price_text, font=price_font, fill=(255, 180, 100, 255))
+        if has_historical_low:
+            low_symbol = {"CNY": "¥", "USD": "$", "EUR": "€"}.get(historical_low_currency, historical_low_currency + " ")
+            low_price_text = f"{low_symbol}{historical_low:.2f}"
+            draw.text((padding + 20, y_offset), low_price_text, font=price_font, fill=(255, 180, 100, 255))
 
         # 史低日期（如果有）
         if historical_low_date:
@@ -1463,7 +1466,7 @@ def draw_game_price_info(
             y_offset += 30
 
         # 对比当前价格（如果当前就是史低）
-        if prices:
+        if prices and has_historical_low:
             cn_price = next((p for p in prices if p.get("region", "").lower() == "cn"), None)
             if cn_price and cn_price.get("price"):
                 current = cn_price.get("price")

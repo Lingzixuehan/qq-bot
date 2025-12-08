@@ -1120,6 +1120,13 @@ async def handle_steam_price(args: Message = CommandArg()):
 
     # 渲染价格信息图片
     try:
+        logger.info(
+            "渲染价格卡片: appid=%s, hist_low=%s %s, date=%s",
+            appid,
+            price_info.get("historical_low"),
+            price_info.get("historical_low_currency", "CNY"),
+            price_info.get("historical_low_date"),
+        )
         img = draw_game_price_info(
             game_name=game_name_cn,
             english_name=game_name_en,
