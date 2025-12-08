@@ -119,6 +119,385 @@ def pil_image_to_base64(image) -> str:
     return f"base64://{base64.b64encode(buffer.getvalue()).decode()}"
 
 
+async def generate_recent_games_image(player_info: Dict, games: List[Dict], qq_user: str = None) -> str:
+    """
+    生成最近游戏列表图片（使用新的美化样式）
+
+    Args:
+        player_info: Steam玩家信息
+        games: 最近玩的游戏列表
+        qq_user: QQ用户昵称（可选）
+
+    Returns:
+        base64编码的图片字符串
+    """
+    from PIL import Image, ImageDraw, ImageFont
+    import asyncio
+
+    # 颜色方案 - 深色主题
+    BG_COLOR = (26, 32, 44)
+    CARD_BG = (45, 55, 72)
+    ACCENT_COLOR = (102, 126, 234)
+    TEXT_PRIMARY = (237, 242, 247)
+    TEXT_SECONDARY = (160, 174, 192)
+    GAME_HIGHLIGHT = (72, 187, 120)
+
+    WIDTH = 800
+    PADDING = 30
+    AVATAR_SIZE = 80
+
+    # 字体路径
+    font_dir = Path(__file__).parent.parent.parent / "fonts"
+    try:
+        font_title = ImageFont.truetype(str(font_dir / "MiSans-Bold.ttf"), 32)
+        font_large = ImageFont.truetype(str(font_dir / "MiSans-Bold.ttf"), 24)
+        font_normal = ImageFont.truetype(str(font_dir / "MiSans-Regular.ttf"), 20)
+        font_small = ImageFont.truetype(str(font_dir / "MiSans-Light.ttf"), 16)
+    except Exception:
+        # 降级到默认字体
+        font_title = ImageFont.load_default()
+        font_large = ImageFont.load_default()
+        font_normal = ImageFont.load_default()
+        font_small = ImageFont.load_default()
+
+    # 计算高度
+    header_height = 160
+    game_item_height = 90
+    total_height = header_height + len(games) * game_item_height + PADDING * 2
+
+    # 创建图片
+    img = Image.new('RGB', (WIDTH, total_height), BG_COLOR)
+    draw = ImageDraw.Draw(img)
+
+    y = PADDING
+
+    # 下载头像
+    avatar_url = player_info.get("avatarfull", "")
+    avatar = None
+    if avatar_url:
+        try:
+            import httpx
+            async with httpx.AsyncClient() as client:
+                response = await client.get(avatar_url, timeout=5)
+                if response.status_code == 200:
+                    avatar = Image.open(BytesIO(response.content)).resize((AVATAR_SIZE, AVATAR_SIZE), Image.Resampling.LANCZOS)
+        except Exception as e:
+            logger.warning(f"下载头像失败: {e}")
+
+    # 绘制头部
+    if avatar:
+        img.paste(avatar, (PADDING, y))
+
+    # 玩家信息
+    info_x = PADDING + AVATAR_SIZE + 20
+    personaname = player_info.get("personaname", "未知用户")
+    draw.text((info_x, y), personaname, fill=TEXT_PRIMARY, font=font_large)
+    y += 35
+
+    if qq_user:
+        draw.text((info_x, y), f"QQ: {qq_user}", fill=TEXT_SECONDARY, font=font_small)
+        y += 25
+
+    # 游戏数量
+    draw.text((info_x, y), f"最近玩了 {len(games)} 款游戏", fill=GAME_HIGHLIGHT, font=font_normal)
+
+    y = header_height
+
+    # 绘制标题栏
+    draw.text((PADDING, y), "📋 最近游戏", fill=ACCENT_COLOR, font=font_title)
+    y += 50
+
+    # 绘制游戏列表
+    for i, game in enumerate(games):
+        # 卡片背景
+        card_y = y + i * game_item_height
+        draw.rectangle(
+            [(PADDING, card_y), (WIDTH - PADDING, card_y + game_item_height - 10)],
+            fill=CARD_BG,
+            outline=None
+        )
+
+        # 游戏名称
+        game_name = game.get("name", "未知游戏")
+        if len(game_name) > 35:
+            game_name = game_name[:35] + "..."
+
+        draw.text((PADDING + 15, card_y + 15), f"{i+1}. {game_name}", fill=TEXT_PRIMARY, font=font_normal)
+
+        # 游戏时长
+        playtime_2weeks = game.get("playtime_2weeks", 0)
+        playtime_forever = game.get("playtime_forever", 0)
+
+        time_y = card_y + 50
+        draw.text(
+            (PADDING + 30, time_y),
+            f"最近2周: {format_playtime(playtime_2weeks)}",
+            fill=GAME_HIGHLIGHT,
+            font=font_small
+        )
+
+        draw.text(
+            (PADDING + 250, time_y),
+            f"总计: {format_playtime(playtime_forever)}",
+            fill=TEXT_SECONDARY,
+            font=font_small
+        )
+
+    return pil_image_to_base64(img)
+
+
+async def generate_player_profile_image(player_info: Dict, recent_games: List[Dict] = None, qq_user: str = None) -> str:
+    """
+    生成Steam个人资料图片（使用新的美化样式）
+
+    Args:
+        player_info: Steam玩家信息
+        recent_games: 最近玩的游戏列表（可选，显示前3个）
+        qq_user: QQ用户昵称（可选）
+
+    Returns:
+        base64编码的图片字符串
+    """
+    from PIL import Image, ImageDraw, ImageFont
+
+    # 颜色方案
+    BG_COLOR = (26, 32, 44)
+    CARD_BG = (45, 55, 72)
+    ACCENT_COLOR = (102, 126, 234)
+    TEXT_PRIMARY = (237, 242, 247)
+    TEXT_SECONDARY = (160, 174, 192)
+    STATUS_ONLINE = (72, 187, 120)
+    STATUS_GAMING = (236, 201, 75)
+
+    WIDTH = 800
+    PADDING = 30
+    AVATAR_SIZE = 120
+
+    # 字体
+    font_dir = Path(__file__).parent.parent.parent / "fonts"
+    try:
+        font_title = ImageFont.truetype(str(font_dir / "MiSans-Bold.ttf"), 36)
+        font_large = ImageFont.truetype(str(font_dir / "MiSans-Bold.ttf"), 26)
+        font_normal = ImageFont.truetype(str(font_dir / "MiSans-Regular.ttf"), 20)
+        font_small = ImageFont.truetype(str(font_dir / "MiSans-Light.ttf"), 16)
+    except Exception:
+        font_title = ImageFont.load_default()
+        font_large = ImageFont.load_default()
+        font_normal = ImageFont.load_default()
+        font_small = ImageFont.load_default()
+
+    # 计算高度
+    header_height = 200
+    games_section_height = 0
+    if recent_games:
+        games_section_height = min(3, len(recent_games)) * 70 + 80
+
+    total_height = header_height + games_section_height + PADDING * 2
+
+    # 创建图片
+    img = Image.new('RGB', (WIDTH, total_height), BG_COLOR)
+    draw = ImageDraw.Draw(img)
+
+    y = PADDING
+
+    # 标题
+    draw.text((PADDING, y), "🎮 Steam 个人资料", fill=ACCENT_COLOR, font=font_title)
+    y += 60
+
+    # 下载头像
+    avatar_url = player_info.get("avatarfull", "")
+    avatar = None
+    if avatar_url:
+        try:
+            import httpx
+            async with httpx.AsyncClient() as client:
+                response = await client.get(avatar_url, timeout=5)
+                if response.status_code == 200:
+                    avatar = Image.open(BytesIO(response.content)).resize((AVATAR_SIZE, AVATAR_SIZE), Image.Resampling.LANCZOS)
+        except Exception as e:
+            logger.warning(f"下载头像失败: {e}")
+
+    if avatar:
+        img.paste(avatar, (PADDING, y))
+
+    # 用户信息
+    info_x = PADDING + AVATAR_SIZE + 25
+    info_y = y
+
+    # Steam昵称
+    personaname = player_info.get("personaname", "未知用户")
+    draw.text((info_x, info_y), personaname, fill=TEXT_PRIMARY, font=font_large)
+    info_y += 38
+
+    # 状态
+    game_name = player_info.get("gameextrainfo", None)
+    if game_name:
+        draw.text((info_x, info_y), "状态: 游戏中", fill=STATUS_GAMING, font=font_normal)
+        info_y += 30
+        draw.text((info_x, info_y), f"正在玩: {game_name}", fill=STATUS_GAMING, font=font_small)
+    else:
+        state = get_player_state_text(player_info.get("personastate", 0))
+        status_color = STATUS_ONLINE if player_info.get("personastate", 0) > 0 else TEXT_SECONDARY
+        draw.text((info_x, info_y), f"状态: {state}", fill=status_color, font=font_normal)
+
+    info_y += 35
+
+    # QQ用户
+    if qq_user:
+        draw.text((info_x, info_y), f"QQ: {qq_user}", fill=TEXT_SECONDARY, font=font_small)
+
+    y += AVATAR_SIZE + 30
+
+    # 最近游戏
+    if recent_games and len(recent_games) > 0:
+        # 分隔线
+        draw.line([(PADDING, y), (WIDTH - PADDING, y)], fill=TEXT_SECONDARY, width=2)
+        y += 25
+
+        draw.text((PADDING, y), "📋 最近游戏", fill=ACCENT_COLOR, font=font_large)
+        y += 45
+
+        for game in recent_games[:3]:  # 只显示前3个
+            game_name = game.get("name", "未知游戏")
+            if len(game_name) > 40:
+                game_name = game_name[:40] + "..."
+
+            playtime_2weeks = game.get("playtime_2weeks", 0)
+            playtime_forever = game.get("playtime_forever", 0)
+
+            # 游戏名
+            draw.text((PADDING + 10, y), f"• {game_name}", fill=TEXT_PRIMARY, font=font_normal)
+            y += 32
+
+            # 时长
+            draw.text(
+                (PADDING + 25, y),
+                f"最近: {format_playtime(playtime_2weeks)} | 总计: {format_playtime(playtime_forever)}",
+                fill=TEXT_SECONDARY,
+                font=font_small
+            )
+            y += 38
+
+    return pil_image_to_base64(img)
+
+
+async def generate_game_library_image(games: List[Dict], qq_user: str = None) -> str:
+    """
+    生成Steam游戏库图片（使用新的美化样式）
+
+    Args:
+        games: 游戏列表
+        qq_user: QQ用户昵称（可选）
+
+    Returns:
+        base64编码的图片字符串
+    """
+    from PIL import Image, ImageDraw, ImageFont
+
+    # 颜色方案
+    BG_COLOR = (26, 32, 44)
+    CARD_BG = (45, 55, 72)
+    ACCENT_COLOR = (102, 126, 234)
+    TEXT_PRIMARY = (237, 242, 247)
+    TEXT_SECONDARY = (160, 174, 192)
+    HIGHLIGHT_COLOR = (236, 201, 75)
+
+    WIDTH = 800
+    PADDING = 30
+
+    # 字体
+    font_dir = Path(__file__).parent.parent.parent / "fonts"
+    try:
+        font_title = ImageFont.truetype(str(font_dir / "MiSans-Bold.ttf"), 36)
+        font_large = ImageFont.truetype(str(font_dir / "MiSans-Bold.ttf"), 24)
+        font_normal = ImageFont.truetype(str(font_dir / "MiSans-Regular.ttf"), 18)
+        font_small = ImageFont.truetype(str(font_dir / "MiSans-Light.ttf"), 16)
+    except Exception:
+        font_title = ImageFont.load_default()
+        font_large = ImageFont.load_default()
+        font_normal = ImageFont.load_default()
+        font_small = ImageFont.load_default()
+
+    # 统计数据
+    total_games = len(games)
+    total_playtime = sum(game.get("playtime_forever", 0) for game in games)
+    games_sorted = sorted(games, key=lambda x: x.get("playtime_forever", 0), reverse=True)
+
+    # 显示前15个游戏
+    display_count = min(15, len(games_sorted))
+
+    # 计算高度
+    header_height = 240
+    game_item_height = 55
+    total_height = header_height + display_count * game_item_height + PADDING * 2
+
+    # 创建图片
+    img = Image.new('RGB', (WIDTH, total_height), BG_COLOR)
+    draw = ImageDraw.Draw(img)
+
+    y = PADDING
+
+    # 标题
+    draw.text((PADDING, y), "📚 Steam 游戏库", fill=ACCENT_COLOR, font=font_title)
+    y += 60
+
+    # QQ用户
+    if qq_user:
+        draw.text((PADDING, y), f"QQ用户: {qq_user}", fill=TEXT_SECONDARY, font=font_small)
+        y += 30
+
+    # 统计信息
+    draw.text((PADDING, y), f"游戏总数: {total_games} 款", fill=HIGHLIGHT_COLOR, font=font_large)
+    y += 40
+
+    draw.text((PADDING, y), f"总游戏时长: {format_playtime(total_playtime)}", fill=TEXT_PRIMARY, font=font_normal)
+    y += 45
+
+    # 分隔线
+    draw.line([(PADDING, y), (WIDTH - PADDING, y)], fill=TEXT_SECONDARY, width=2)
+    y += 25
+
+    # TOP游戏标题
+    draw.text((PADDING, y), "🏆 游戏时长排行", fill=ACCENT_COLOR, font=font_large)
+    y += 45
+
+    # 游戏列表
+    for i, game in enumerate(games_sorted[:display_count], 1):
+        game_name = game.get("name", "未知游戏")
+        playtime = game.get("playtime_forever", 0)
+
+        # 限制名称长度
+        if len(game_name) > 45:
+            game_name = game_name[:45] + "..."
+
+        # 背景卡片（仅用于前3名）
+        if i <= 3:
+            draw.rectangle(
+                [(PADDING, y - 5), (WIDTH - PADDING, y + game_item_height - 15)],
+                fill=CARD_BG,
+                outline=None
+            )
+
+        # 排名和游戏名
+        rank_color = HIGHLIGHT_COLOR if i <= 3 else TEXT_PRIMARY
+        text = f"{i}. {game_name}"
+        draw.text((PADDING + 15, y), text, fill=rank_color, font=font_normal)
+
+        # 时长（右对齐）
+        time_text = format_playtime(playtime)
+        try:
+            bbox = draw.textbbox((0, 0), time_text, font=font_normal)
+            time_width = bbox[2] - bbox[0]
+        except Exception:
+            time_width = len(time_text) * 10  # 估算宽度
+
+        draw.text((WIDTH - PADDING - time_width - 15, y), time_text, fill=TEXT_SECONDARY, font=font_normal)
+
+        y += game_item_height
+
+    return pil_image_to_base64(img)
+
+
 # ==================== 命令处理器 ====================
 
 # 绑定Steam账号
@@ -281,17 +660,16 @@ async def handle_steam_profile(bot: Bot, event: MessageEvent, args: Message = Co
         await steam_profile.finish("❌ 获取Steam资料失败")
 
     # 获取最近玩的游戏
-    recent_games = await steam_api.get_recently_played_games(steam_id, 5)
+    recent_games = await steam_api.get_recently_played_games(steam_id, 3)
 
-    # 生成图片 (使用旧的图片生成方法，保持兼容性)
+    # 生成图片（使用新的美化样式）
     try:
-        from common.steam_profile_image import generate_steam_profile_image_base64
-        img_base64 = generate_steam_profile_image_base64(player_info, recent_games, qq_user_name)
+        img_base64 = await generate_player_profile_image(player_info, recent_games, qq_user_name)
         await steam_profile.finish(MessageSegment.image(img_base64))
     except FinishedException:
         raise  # 重新抛出FinishedException，这是正常的控制流
     except Exception as e:
-        logger.error(f"生成Steam资料图片失败: {e}")
+        logger.error(f"生成Steam资料图片失败: {e}", exc_info=True)
         # 降级为文本格式
         nickname = player_info.get("personaname", "未知")
         state = get_player_state_text(player_info.get("personastate", 0))
@@ -352,18 +730,17 @@ async def handle_steam_recent(bot: Bot, event: MessageEvent, args: Message = Com
     if not games:
         await steam_recent.finish("❌ 该用户最近没有玩游戏或游戏库未公开")
 
-    # 使用资料图片生成器
+    if not player_info:
+        await steam_recent.finish("❌ 获取玩家资料失败")
+
+    # 使用新的游戏列表图片生成器
     try:
-        from common.steam_profile_image import generate_steam_profile_image_base64
-        if player_info:
-            img_base64 = generate_steam_profile_image_base64(player_info, games, qq_user_name)
-        else:
-            raise Exception("无法获取玩家资料")
+        img_base64 = await generate_recent_games_image(player_info, games, qq_user_name)
         await steam_recent.finish(MessageSegment.image(img_base64))
     except FinishedException:
         raise  # 重新抛出FinishedException，这是正常的控制流
     except Exception as e:
-        logger.error(f"生成最近游戏图片失败: {e}")
+        logger.error(f"生成最近游戏图片失败: {e}", exc_info=True)
         # 降级为文本格式
         msg = f"🎮 最近玩的游戏\n\nQQ用户: {qq_user_name}\n\n"
         for i, game in enumerate(games, 1):
@@ -424,15 +801,14 @@ async def handle_steam_games(bot: Bot, event: MessageEvent, args: Message = Comm
     if not games:
         await steam_games.finish("❌ 该用户游戏库未公开或为空")
 
-    # 生成图片
+    # 生成图片（使用新的美化样式）
     try:
-        from common.steam_profile_image import generate_steam_games_image_base64
-        img_base64 = generate_steam_games_image_base64(games, qq_user_name)
+        img_base64 = await generate_game_library_image(games, qq_user_name)
         await steam_games.finish(MessageSegment.image(img_base64))
     except FinishedException:
         raise  # 重新抛出FinishedException，这是正常的控制流
     except Exception as e:
-        logger.error(f"生成游戏库图片失败: {e}")
+        logger.error(f"生成游戏库图片失败: {e}", exc_info=True)
         # 降级为文本格式
         total_games = len(games)
         total_playtime = sum(game.get("playtime_forever", 0) for game in games)
