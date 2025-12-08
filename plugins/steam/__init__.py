@@ -49,6 +49,7 @@ from .data_source import BindData, SteamInfoData, ParentData, DisableParentData
 from .draw import draw_friends_status, draw_start_gaming
 from .utils import fetch_avatar, convert_player_name_to_nickname
 from .models import Player, ProcessedPlayer
+from .steam_store_api import SteamStoreAPI
 
 # 插件元数据
 __plugin_meta__ = PluginMetadata(
@@ -74,6 +75,7 @@ config = driver.config
 STEAM_API_KEY = getattr(config, "steam_api_key", None)
 STEAM_BROADCAST_INTERVAL = getattr(config, "steam_broadcast_interval", 300)  # 默认5分钟
 STEAM_BROADCAST_ENABLED = getattr(config, "steam_broadcast_enabled", True)
+ITAD_API_KEY = getattr(config, "itad_api_key", None)  # IsThereAnyDeal API密钥
 
 # 初始化Steam API
 steam_api: Optional[SteamAPI] = None
@@ -81,6 +83,15 @@ if STEAM_API_KEY:
     steam_api = SteamAPI(STEAM_API_KEY)
 else:
     logger.warning("Steam API Key未配置，Steam功能将无法使用")
+
+# 初始化Steam商店API
+steam_store_api: Optional[SteamStoreAPI] = None
+if ITAD_API_KEY:
+    steam_store_api = SteamStoreAPI(ITAD_API_KEY)
+    logger.info("Steam商店API已初始化（ITAD支持）")
+else:
+    steam_store_api = SteamStoreAPI()  # 无ITAD支持，部分功能受限
+    logger.warning("ITAD API Key未配置，史低价格查询功能将受限")
 
 # 获取数据目录
 if HAS_LOCALSTORE and store:
@@ -996,6 +1007,179 @@ async def handle_disable_broadcast(event: MessageEvent):
     await steam_disable_broadcast.finish("✅ 已禁用Steam游戏状态播报")
 
 
+# Steam史低游戏查询
+steam_historical_low = on_command("steam史低", aliases={"史低游戏", "史低"}, priority=5, block=True)
+
+
+@steam_historical_low.handle()
+async def handle_steam_historical_low(event: MessageEvent, args: Message = CommandArg()):
+    """查询史低游戏"""
+    if not steam_store_api:
+        await steam_historical_low.finish("❌ Steam商店功能未初始化")
+
+    tag = args.extract_plain_text().strip()
+
+    # 发送提示
+    if tag:
+        await steam_historical_low.send(f"🔍 正在查询 '{tag}' 类型的史低游戏，请稍候...")
+    else:
+        await steam_historical_low.send("🔍 正在查询热门史低游戏，请稍候...")
+
+    try:
+        # 查询史低游戏
+        games = await steam_store_api.find_historical_low_deals(
+            limit=10,
+            tags=tag if tag else None
+        )
+
+        if not games:
+            if tag:
+                await steam_historical_low.finish(f"❌ 未找到 '{tag}' 类型的史低游戏")
+            else:
+                await steam_historical_low.finish("❌ 未找到史低游戏，请稍后再试")
+
+        # 生成回复消息
+        msg = "💰 Steam 史低游戏推荐\n\n" if not tag else f"💰 {tag} 类史低游戏推荐\n\n"
+
+        for i, game in enumerate(games, 1):
+            name = game["name"]
+            current_price = game["current_price"]
+            original_price = game["original_price"]
+            discount = game["discount_percent"]
+            is_historical_low = game.get("is_historical_low", False)
+
+            # 构建单个游戏信息
+            game_info = f"{i}. {name}\n"
+            game_info += f"   💰 当前价格: ¥{current_price:.2f}"
+
+            if is_historical_low:
+                game_info += " 🔥史低价🔥"
+
+            game_info += f"\n   📉 折扣: {discount}%"
+
+            if original_price > 0:
+                game_info += f" (原价: ¥{original_price:.2f})"
+
+            game_info += f"\n   🔗 https://store.steampowered.com/app/{game['appid']}"
+            game_info += "\n"
+
+            msg += game_info
+
+        # 检查是否有促销活动
+        sale_info = await steam_store_api.get_steam_specials_info()
+        if sale_info and sale_info.get("is_active"):
+            msg += f"\n🎉 {sale_info['name']}进行中！还剩{sale_info['days_left']}天"
+
+        await steam_historical_low.finish(msg.strip())
+
+    except FinishedException:
+        raise
+    except Exception as e:
+        logger.error(f"查询史低游戏失败: {e}", exc_info=True)
+        await steam_historical_low.finish("❌ 查询失败，请稍后再试")
+
+
+# Steam榜单
+steam_charts = on_command("steam榜单", aliases={"steam排行", "热销榜"}, priority=5, block=True)
+
+
+@steam_charts.handle()
+async def handle_steam_charts():
+    """查询Steam热销榜"""
+    if not steam_store_api:
+        await steam_charts.finish("❌ Steam商店功能未初始化")
+
+    await steam_charts.send("🔍 正在获取Steam热销榜，请稍候...")
+
+    try:
+        # 获取热销榜
+        games = await steam_store_api.get_top_sellers(limit=15)
+
+        if not games:
+            await steam_charts.finish("❌ 获取热销榜失败，请稍后再试")
+
+        # 生成回复消息
+        msg = "🏆 Steam 全球热销榜 TOP 15\n\n"
+
+        for i, game in enumerate(games, 1):
+            name = game["name"]
+            price = game["price"]
+            discount = game["discount"]
+
+            # 构建单个游戏信息
+            game_info = f"{i}. {name}\n"
+
+            if discount > 0:
+                game_info += f"   💰 ¥{price:.2f} (-{discount}%)"
+            elif price > 0:
+                game_info += f"   💰 ¥{price:.2f}"
+            else:
+                game_info += "   🆓 免费游戏"
+
+            game_info += f"\n   🔗 https://store.steampowered.com/app/{game['appid']}"
+            game_info += "\n"
+
+            msg += game_info
+
+        # 检查促销信息
+        sale_info = await steam_store_api.get_steam_specials_info()
+        if sale_info:
+            if sale_info.get("is_active"):
+                msg += f"\n🎉 {sale_info['name']}进行中！还剩{sale_info['days_left']}天"
+            elif sale_info.get("days_until"):
+                msg += f"\n📅 {sale_info['name']}将在{sale_info['days_until']}天后开始"
+
+        await steam_charts.finish(msg.strip())
+
+    except FinishedException:
+        raise
+    except Exception as e:
+        logger.error(f"获取热销榜失败: {e}", exc_info=True)
+        await steam_charts.finish("❌ 获取失败，请稍后再试")
+
+
+# Steam促销信息
+steam_sales = on_command("steam促销", aliases={"steam特卖", "steam折扣"}, priority=5, block=True)
+
+
+@steam_sales.handle()
+async def handle_steam_sales():
+    """查询当前Steam促销信息"""
+    if not steam_store_api:
+        await steam_sales.finish("❌ Steam商店功能未初始化")
+
+    try:
+        sale_info = await steam_store_api.get_steam_specials_info()
+
+        if not sale_info:
+            msg = "📢 当前没有进行中的Steam大型促销活动\n\n"
+            msg += "Steam主要促销活动时间参考：\n"
+            msg += "🌸 春季特卖：3月中下旬\n"
+            msg += "☀️ 夏季特卖：6月下旬\n"
+            msg += "🍂 秋季特卖：10月底-11月初\n"
+            msg += "❄️ 冬季特卖：12月下旬-1月初"
+            await steam_sales.finish(msg)
+
+        if sale_info.get("is_active"):
+            msg = f"🎉 {sale_info['name']}正在进行中！\n\n"
+            msg += f"📅 活动时间：{sale_info['start_date']} 至 {sale_info['end_date']}\n"
+            msg += f"⏰ 还剩 {sale_info['days_left']} 天\n\n"
+            msg += "💡 使用 /steam史低 查看史低游戏推荐\n"
+            msg += "💡 使用 /steam榜单 查看热销榜单"
+        else:
+            msg = f"📅 {sale_info['name']}即将开始！\n\n"
+            msg += f"📅 活动时间：{sale_info['start_date']} 至 {sale_info['end_date']}\n"
+            msg += f"⏰ 还有 {sale_info['days_until']} 天开始"
+
+        await steam_sales.finish(msg)
+
+    except FinishedException:
+        raise
+    except Exception as e:
+        logger.error(f"查询促销信息失败: {e}", exc_info=True)
+        await steam_sales.finish("❌ 查询失败，请稍后再试")
+
+
 # Steam帮助
 steam_help = on_command("steam帮助", aliases={"steamhelp"}, priority=5, block=True)
 
@@ -1017,16 +1201,26 @@ async def handle_steam_help():
 /steam游戏库 [@用户] - 查看完整游戏库
 /steam视奸 - 查看所有好友在线状态
 
+【商店功能】⭐新功能⭐
+/steam史低 - 查看热门史低游戏
+/steam史低 <类型> - 查看特定类型的史低游戏
+  示例：/steam史低 类银河恶魔城
+/steam榜单 - 查看Steam全球热销榜
+/steam促销 - 查看当前促销活动信息
+
 【播报功能】
 /steam启用播报 - 启用游戏状态播报
 /steam禁用播报 - 禁用游戏状态播报
 
-启用播报后，当好友开始玩游戏时会自动通知
+启用播报后：
+- 好友开始玩游戏时会自动通知
+- Steam大型促销活动时会自动推送
 
 💡 提示：
 1. 绑定前需确保Steam资料为公开
 2. 游戏库需设置为公开才能查看
-3. 播报功能仅在群聊中生效"""
+3. 播报功能仅在群聊中生效
+4. 史低功能需要ITAD API密钥支持"""
 
     await steam_help.finish(help_text)
 
@@ -1078,10 +1272,86 @@ async def check_steam_status():
     except Exception as e:
         logger.error(f"检查Steam状态失败: {e}")
 
+# Steam促销检测
+_last_sale_notification = None  # 记录上次通知的促销活动
+
+
+async def check_steam_sales():
+    """定期检查Steam促销活动并推送"""
+    global _last_sale_notification
+
+    if not steam_store_api:
+        return
+
+    try:
+        sale_info = await steam_store_api.get_steam_specials_info()
+
+        if not sale_info:
+            return
+
+        # 生成通知标识符
+        sale_id = f"{sale_info.get('name')}_{sale_info.get('start_date')}"
+
+        # 检查是否已经通知过
+        if _last_sale_notification == sale_id:
+            return
+
+        # 获取Bot实例
+        from nonebot import get_bot
+        try:
+            bot = get_bot()
+        except Exception:
+            logger.warning("无法获取Bot实例，跳过促销推送")
+            return
+
+        # 构建消息
+        if sale_info.get("is_active"):
+            msg = f"🎉 【Steam促销通知】\n\n"
+            msg += f"{sale_info['name']}正在进行中！\n"
+            msg += f"📅 活动时间：{sale_info['start_date']} 至 {sale_info['end_date']}\n"
+            msg += f"⏰ 还剩 {sale_info['days_left']} 天\n\n"
+            msg += "💡 使用 /steam史低 查看史低游戏推荐\n"
+            msg += "💡 使用 /steam榜单 查看热销榜单"
+        else:
+            # 即将开始的促销（7天内）
+            msg = f"📢 【Steam促销预告】\n\n"
+            msg += f"{sale_info['name']}即将开始！\n"
+            msg += f"📅 活动时间：{sale_info['start_date']} 至 {sale_info['end_date']}\n"
+            msg += f"⏰ 还有 {sale_info['days_until']} 天开始\n\n"
+            msg += "记得提前准备好你的愿望单哦！"
+
+        # 推送到所有启用播报的群组
+        for parent_id in bind_data.content.keys():
+            # 只推送到群组
+            if not parent_id.isdigit() or len(parent_id) < 6:
+                continue
+
+            # 检查群是否禁用播报
+            if disable_parent_data.is_disabled(parent_id):
+                continue
+
+            try:
+                await bot.send_group_msg(group_id=int(parent_id), message=msg)
+                logger.info(f"已向群组 {parent_id} 推送Steam促销信息")
+            except Exception as e:
+                logger.warning(f"向群组 {parent_id} 推送促销信息失败: {e}")
+
+        # 更新最后通知记录
+        _last_sale_notification = sale_id
+        logger.info(f"Steam促销通知已推送: {sale_id}")
+
+    except Exception as e:
+        logger.error(f"检查Steam促销失败: {e}")
+
+
 # 只在apscheduler可用时注册定时任务
 if HAS_APSCHEDULER and scheduler:
     scheduler.scheduled_job("interval", seconds=STEAM_BROADCAST_INTERVAL, id="steam_status_check")(check_steam_status)
     logger.info(f"Steam状态检查任务已注册，间隔: {STEAM_BROADCAST_INTERVAL}秒")
+
+    # 每天上午10点检查Steam促销
+    scheduler.scheduled_job("cron", hour=10, minute=0, id="steam_sales_check")(check_steam_sales)
+    logger.info("Steam促销检查任务已注册，每天10:00执行")
 
 
 async def broadcast_start_gaming(player: Dict):

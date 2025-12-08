@@ -57,7 +57,13 @@ async def handle_help(bot: Bot, event: MessageEvent):
   /steam启用播报 - 启用游戏状态自动播报
   /steam禁用播报 - 禁用游戏状态自动播报
 
-  💡 支持自动播报好友游戏状态变化
+  ⭐ 商店功能 ⭐
+  /steam史低 - 查看热门史低游戏
+  /steam史低 <类型> - 查看特定类型的史低游戏
+  /steam榜单 - 查看Steam全球热销榜
+  /steam促销 - 查看当前促销活动信息
+
+  💡 支持自动播报好友游戏状态变化和Steam促销活动
 
 🎨 二次元美图
   /美图 [API源] - 随机获取一张二次元图片
@@ -121,7 +127,7 @@ async def handle_help(bot: Bot, event: MessageEvent):
         MessageSegment.node_custom(
             user_id=bot_id,
             nickname=bot_name,
-            content="🎮 Steam功能\n\n/绑定steam <Steam ID> - 绑定Steam账号\n/解绑steam - 解除Steam账号绑定\n/steam资料 [@某人] - 查看Steam个人资料\n/steam游戏 [@某人] - 查看最近在玩的游戏\n/steam游戏库 [@某人] - 查看游戏库和游戏时长\n/steam视奸 - 查看所有人的Steam在线状态（精美图片）\n/steam昵称 <昵称> - 设置Steam显示昵称\n/steam启用播报 - 启用游戏状态自动播报\n/steam禁用播报 - 禁用游戏状态自动播报\n\n💡 支持自动播报好友游戏状态变化"
+            content="🎮 Steam功能\n\n/绑定steam <Steam ID> - 绑定Steam账号\n/解绑steam - 解除Steam账号绑定\n/steam资料 [@某人] - 查看Steam个人资料\n/steam游戏 [@某人] - 查看最近在玩的游戏\n/steam游戏库 [@某人] - 查看游戏库和游戏时长\n/steam视奸 - 查看所有人的Steam在线状态（精美图片）\n/steam昵称 <昵称> - 设置Steam显示昵称\n/steam启用播报 - 启用游戏状态自动播报\n/steam禁用播报 - 禁用游戏状态自动播报\n\n⭐ 商店功能 ⭐\n/steam史低 - 查看热门史低游戏\n/steam史低 <类型> - 查看特定类型史低游戏\n/steam榜单 - 查看Steam全球热销榜\n/steam促销 - 查看当前促销活动信息\n\n💡 支持自动播报好友游戏状态变化和Steam促销活动"
         ),
         MessageSegment.node_custom(
             user_id=bot_id,
