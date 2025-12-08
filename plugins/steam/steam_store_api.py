@@ -550,6 +550,9 @@ class SteamStoreAPI:
                                 parsed_ts = int(timestamp)
 
                             if parsed_ts is not None:
+                                # ITAD 时间戳有时为毫秒，需要兼容转换
+                                if parsed_ts > 10 ** 11:  # 约 5138 年的秒级时间戳，上溢则视为毫秒
+                                    parsed_ts = parsed_ts / 1000
                                 historical_low_date = datetime.fromtimestamp(parsed_ts).strftime("%Y-%m-%d")
                         except Exception:
                             logger.debug("解析史低时间戳失败", exc_info=True)
