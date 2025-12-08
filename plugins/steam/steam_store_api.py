@@ -360,36 +360,35 @@ class SteamStoreAPI:
         }
 
     async def _get_historical_low_v1(self, session: httpx.AsyncClient, gid: str, country: str) -> Optional[Dict]:
-        """使用 v1 overview 接口兜底史低价格"""
-        overview_url = f"{self.itad_base_url}/v01/game/overview/"
+        """使用 ITAD /games/historylow/v1 接口兜底史低价格及时间"""
+        history_url = f"{self.itad_base_url}/games/historylow/v1"
         params = {
             "key": self.itad_api_key,
-            "country": country.lower(),
-            "region": country.lower(),
-            "game_id": gid,
-            "shop": "steam",
+            "country": country.upper(),
         }
 
-        response = await session.get(overview_url, params=params)
+        response = await session.post(history_url, params=params, json=[gid])
         if response.status_code != 200:
-            logger.debug(f"ITAD overview 接口失败: {response.status_code}")
+            logger.debug(f"ITAD historylow 接口失败: {response.status_code}")
             return None
 
-        data = response.json().get("data", {})
-        game_data = data.get(str(gid)) or data.get(gid)
-        if not game_data:
+        records = response.json()
+        if not records or not isinstance(records, list):
             return None
 
-        lowest = game_data.get("lowest") or {}
-        if not lowest:
+        record = next((item for item in records if item.get("id") == gid), records[0])
+        low = (record or {}).get("low") if record else None
+        if not low:
             return None
 
+        price_info = low.get("price") or {}
+        currency = (price_info.get("currency") or "CNY").upper()
         return {
-            "price": lowest.get("price"),
-            "currency": (lowest.get("currency") or "CNY").upper(),
-            "timestamp": lowest.get("recorded"),
+            "price": price_info.get("amount"),
+            "currency": currency,
+            "timestamp": low.get("timestamp"),
             "current_price": None,
-            "current_currency": (lowest.get("currency") or "CNY").upper(),
+            "current_currency": currency,
         }
 
     async def search_game(self, keyword: str) -> Optional[Dict]:
