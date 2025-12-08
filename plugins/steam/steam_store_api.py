@@ -244,6 +244,13 @@ class SteamStoreAPI:
             # v3 可能因为区域或权限问题失败，尝试 v1 概览接口兜底
             if not low_info:
                 low_info = await self._get_historical_low_v1(session, gid, country)
+            elif not low_info.get("timestamp"):
+                # v3 成功但没有时间戳，尝试从 v1 补充时间戳
+                logger.debug("v3 返回的史低数据缺少时间戳，尝试从 v1 补充")
+                v1_info = await self._get_historical_low_v1(session, gid, country)
+                if v1_info and v1_info.get("timestamp"):
+                    low_info["timestamp"] = v1_info["timestamp"]
+                    logger.debug(f"成功从 v1 补充时间戳: {v1_info['timestamp']}")
 
             return low_info
 
@@ -274,6 +281,7 @@ class SteamStoreAPI:
 
         game_data = prices_data[0]
         history_low = game_data.get("historyLow", {})
+        logger.debug(f"ITAD v3 historyLow 原始数据: {history_low}")
 
         lowest_price = None
         lowest_currency = "CNY"
@@ -282,10 +290,16 @@ class SteamStoreAPI:
         for period in ["m3", "y1", "all"]:
             if period in history_low and history_low[period]:
                 low_data = history_low[period]
+                logger.debug(f"ITAD v3 使用 {period} 周期数据: {low_data}")
                 if "amount" in low_data:
                     lowest_price = low_data.get("amount")
                     lowest_currency = low_data.get("currency", "CNY").upper()
-                    lowest_timestamp = low_data.get("timestamp")
+                    # 尝试多种可能的时间戳字段名
+                    lowest_timestamp = (
+                        low_data.get("timestamp")
+                        or low_data.get("recorded")
+                        or low_data.get("date")
+                    )
                     break
 
         if lowest_price is None:
