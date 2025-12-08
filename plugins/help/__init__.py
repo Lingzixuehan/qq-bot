@@ -4,8 +4,9 @@
 """
 from nonebot import on_command
 from nonebot.adapters.onebot.v11 import Bot, MessageEvent, MessageSegment, GroupMessageEvent
+from nonebot.exception import FinishedException
 
-help_cmd = on_command("help", aliases={"帮助", "菜单", "功能"}, priority=1)
+help_cmd = on_command("help", aliases={"帮助", "菜单", "功能"}, priority=1, block=True)
 
 @help_cmd.handle()
 async def handle_help(bot: Bot, event: MessageEvent):

@@ -15,11 +15,12 @@ from PIL import Image, ImageDraw, ImageFont, ImageFilter
 # 资源目录
 RES_DIR = Path(__file__).parent / "res"
 
-# 字体路径
+# 字体路径（默认指向仓库内字体，避免中文显示乱码）
+REPO_ROOT = Path(__file__).resolve().parents[2]
 FONT_PATHS = {
-    "regular": "/home/user/qq-bot/fonts/MiSans-Regular.ttf",
-    "light": "/home/user/qq-bot/fonts/MiSans-Light.ttf",
-    "bold": "/home/user/qq-bot/fonts/MiSans-Bold.ttf",
+    "regular": str(REPO_ROOT / "fonts" / "MiSans-Regular.ttf"),
+    "light": str(REPO_ROOT / "fonts" / "MiSans-Light.ttf"),
+    "bold": str(REPO_ROOT / "fonts" / "MiSans-Bold.ttf"),
 }
 
 # 字体大小常量

@@ -32,6 +32,34 @@ class SteamStoreAPI:
         # 缓存配置
         self.cache_duration = timedelta(hours=1)  # 缓存1小时
 
+    async def _translate_to_english(self, text: str) -> Optional[str]:
+        """简单的中文->英文翻译兜底，提升外文原名搜索命中率"""
+        if not text:
+            return None
+
+        if not re.search(r"[\u4e00-\u9fff]", text):
+            return None
+
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(
+                    "https://fanyi.youdao.com/translate",
+                    params={"doctype": "json", "type": "AUTO", "i": text},
+                )
+                if resp.status_code != 200:
+                    return None
+                data = resp.json()
+                # 解析有道翻译结果
+                translate_result = data.get("translateResult")
+                if translate_result and isinstance(translate_result, list):
+                    first_line = translate_result[0]
+                    if first_line and isinstance(first_line, list) and first_line[0].get("tgt"):
+                        return first_line[0]["tgt"].strip()
+        except Exception:
+            logger.debug("翻译失败，跳过", exc_info=True)
+
+        return None
+
     async def search_games_on_sale(
         self,
         limit: int = 20,
