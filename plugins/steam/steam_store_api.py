@@ -2,7 +2,10 @@
 Steam商店和价格API模块
 支持ITAD (IsThereAnyDeal) API和Steam Store API集成
 """
+import asyncio
 import httpx
+import re
+from html import unescape
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -47,70 +50,85 @@ class SteamStoreAPI:
             打折游戏列表
         """
         try:
-            # 使用Steam Store的搜索API
+            # 直接抓取Steam搜索页HTML，解析折扣信息
             params = {
-                "cc": "cn",  # 中国区
-                "l": "schinese",  # 简体中文
-                "specials": "1",  # 仅显示特价
-                "json": "1",
+                "specials": "1",
+                "cc": "cn",
+                "l": "schinese",
                 "start": 0,
-                "count": min(limit * 2, 100)  # 最多100个
+                "count": max(limit * 2, 50),
+            }
+            if tags:
+                # 将“类型/标签”作为搜索关键词处理
+                params["term"] = " ".join(tags)
+
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) SteamBot/1.0"
             }
 
-            if tags:
-                params["tags"] = ",".join(tags)
-
             async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-                # Steam的搜索API
-                url = "https://store.steampowered.com/search/results/"
-
-                logger.debug(f"调用Steam搜索API: url={url}, params={params}")
-                response = await client.get(url, params=params)
+                url = "https://store.steampowered.com/search/"
+                logger.debug(f"抓取Steam搜索页: url={url}, params={params}")
+                response = await client.get(url, params=params, headers=headers)
 
                 if response.status_code != 200:
-                    logger.error(f"Steam搜索API返回错误: {response.status_code}, 响应: {response.text[:200]}")
+                    logger.error(f"Steam搜索页请求失败: {response.status_code}, 响应: {response.text[:200]}")
                     return []
 
-                try:
-                    data = response.json()
-                except Exception as e:
-                    logger.error(f"解析Steam搜索API响应失败: {e}, 响应内容: {response.text[:200]}")
-                    return []
+                html = response.text
 
-                total = data.get("total", 0)
-                items = data.get("items", [])
-                logger.info(f"Steam搜索API返回: 总数={total}, 当前批次={len(items)}")
+            pattern = re.compile(
+                r'<a[^>]*class="search_result_row[^"]*"[^>]*>(?P<body>.*?)</a>',
+                re.S
+            )
+            filtered_items: List[Dict] = []
+            seen_appids = set()
 
-                if not items:
-                    logger.warning(f"Steam搜索API未返回任何游戏，data keys: {data.keys()}")
-                    return []
+            for match in pattern.finditer(html):
+                block = match.group("body")
+                appid_match = re.search(r'data-ds-appid="([^"]+)"', match.group(0))
+                if not appid_match:
+                    continue
+                appid_raw = appid_match.group(1)
+                appid = appid_raw.split(",")[0].strip()
+                if not appid.isdigit() or appid in seen_appids:
+                    continue
 
-                # 过滤折扣百分比
-                filtered_items = []
-                for i, item in enumerate(items[:5]):  # 先查看前5个游戏的数据结构
-                    logger.debug(f"游戏 {i+1} 数据结构: {item}")
+                discount_match = re.search(r'data-discount="(\d+)"', match.group(0))
+                discount = int(discount_match.group(1)) if discount_match else 0
+                if discount < min_discount:
+                    continue
 
-                for item in items:
-                    discount = item.get("discount_percent", 0)
-                    # Steam API可能使用不同的字段名
-                    if discount == 0:
-                        # 尝试其他可能的字段名
-                        discount = item.get("discount", 0)
+                price_match = re.search(r'data-price-final="(\d+)"', match.group(0))
+                final_price = int(price_match.group(1)) / 100 if price_match else None
 
-                    logger.debug(f"游戏 {item.get('name', 'Unknown')}: discount_percent={item.get('discount_percent')}, discount={item.get('discount')}, 最终折扣={discount}%")
+                title_match = re.search(r'<span class="title">(.*?)</span>', block, re.S)
+                title = unescape(title_match.group(1)).strip() if title_match else "未知游戏"
 
-                    if discount >= min_discount:
-                        filtered_items.append(item)
-                        logger.info(f"✓ 找到符合折扣要求的游戏: {item.get('name')} ({discount}%)")
+                seen_appids.add(appid)
+                filtered_items.append({
+                    "id": int(appid),
+                    "name": title,
+                    "discount_percent": discount,
+                    "final_price": final_price,
+                })
 
-                logger.info(f"过滤后剩余 {len(filtered_items)} 个游戏（折扣≥{min_discount}%）")
-                return filtered_items[:limit]
+                if len(filtered_items) >= limit * 2:
+                    break
+
+            logger.info(f"Steam搜索解析到 {len(filtered_items)} 个折扣游戏")
+            return filtered_items[:limit]
 
         except Exception as e:
             logger.error(f"搜索打折游戏失败: {e}", exc_info=True)
             return []
 
-    async def get_game_details(self, appid: int, country: str = "cn") -> Optional[Dict]:
+    async def get_game_details(
+        self,
+        appid: int,
+        country: str = "cn",
+        client: Optional[httpx.AsyncClient] = None,
+    ) -> Optional[Dict]:
         """
         获取游戏详细信息
 
@@ -121,30 +139,36 @@ class SteamStoreAPI:
         Returns:
             游戏详情字典
         """
+        session = client or httpx.AsyncClient(timeout=30)
         try:
-            async with httpx.AsyncClient(timeout=30) as client:
-                url = f"{self.steam_store_url}/appdetails"
-                params = {
-                    "appids": appid,
-                    "cc": country,
-                    "l": "schinese"
-                }
+            url = f"{self.steam_store_url}/appdetails"
+            params = {
+                "appids": appid,
+                "cc": country,
+                "l": "schinese"
+            }
 
-                response = await client.get(url, params=params)
-                if response.status_code != 200:
-                    return None
-
-                data = response.json()
-                if str(appid) in data and data[str(appid)]["success"]:
-                    return data[str(appid)]["data"]
-
+            response = await session.get(url, params=params)
+            if response.status_code != 200:
                 return None
 
+            data = response.json()
+            if str(appid) in data and data[str(appid)]["success"]:
+                return data[str(appid)]["data"]
+
+            return None
         except Exception as e:
             logger.error(f"获取游戏详情失败 (appid={appid}): {e}")
             return None
+        finally:
+            if client is None:
+                await session.aclose()
 
-    async def get_historical_low(self, appid: int) -> Optional[Dict]:
+    async def get_historical_low(
+        self,
+        appid: int,
+        client: Optional[httpx.AsyncClient] = None
+    ) -> Optional[Dict]:
         """
         获取游戏史低价格（使用ITAD API）
 
@@ -158,45 +182,48 @@ class SteamStoreAPI:
             logger.warning("ITAD API密钥未配置，无法获取史低价格")
             return None
 
+        session = client or httpx.AsyncClient(timeout=30)
         try:
-            async with httpx.AsyncClient(timeout=30) as client:
-                # 首先搜索游戏ID
-                url = f"{self.itad_base_url}/games/lookup/v1"
-                params = {
-                    "key": self.itad_api_key,
-                    "shop": "steam",
-                    "game_id": f"app/{appid}"
-                }
+            # 首先搜索游戏ID
+            url = f"{self.itad_base_url}/games/lookup/v1"
+            params = {
+                "key": self.itad_api_key,
+                "shop": "steam",
+                "game_id": f"app/{appid}"
+            }
 
-                response = await client.get(url, params=params)
-                if response.status_code != 200:
-                    return None
+            response = await session.get(url, params=params)
+            if response.status_code != 200:
+                return None
 
-                data = response.json()
-                if not data or "game" not in data:
-                    return None
+            data = response.json()
+            if not data or "game" not in data:
+                return None
 
-                game_id = data["game"]["id"]
+            game_id = data["game"]["id"]
 
-                # 获取历史最低价
-                url = f"{self.itad_base_url}/games/historylow/v1"
-                params = {
-                    "key": self.itad_api_key,
-                    "id": game_id,
-                    "country": "CN",
-                    "shops": "steam"
-                }
+            # 获取历史最低价
+            url = f"{self.itad_base_url}/games/historylow/v1"
+            params = {
+                "key": self.itad_api_key,
+                "id": game_id,
+                "country": "CN",
+                "shops": "steam"
+            }
 
-                response = await client.get(url, params=params)
-                if response.status_code != 200:
-                    return None
+            response = await session.get(url, params=params)
+            if response.status_code != 200:
+                return None
 
-                history_data = response.json()
-                return history_data.get("data", {})
+            history_data = response.json()
+            return history_data.get("data", {})
 
         except Exception as e:
             logger.error(f"获取史低价格失败 (appid={appid}): {e}")
             return None
+        finally:
+            if client is None:
+                await session.aclose()
 
     async def find_historical_low_deals(
         self,
@@ -218,7 +245,7 @@ class SteamStoreAPI:
         # 搜索当前打折的游戏（降低最小折扣要求到10%）
         tag_list = [tags] if tags else None
         games_on_sale = await self.search_games_on_sale(
-            limit=limit * 3,  # 获取更多，因为要筛选
+            limit=max(limit * 2, limit),  # 获取更多，因为要筛选
             min_discount=10,  # 降低到10%，获取所有有折扣的游戏
             tags=tag_list
         )
@@ -229,58 +256,52 @@ class SteamStoreAPI:
             logger.warning("未找到打折游戏")
             return []
 
-        # 收集所有游戏信息
-        all_games = []
-        processed_count = 0
+        # 并发处理游戏信息以提升速度，限制并发数量避免触发平台风控
+        semaphore = asyncio.Semaphore(8)
 
-        for game in games_on_sale:
+        async def process_game(
+            game: Dict,
+            steam_client: httpx.AsyncClient,
+            itad_client: Optional[httpx.AsyncClient]
+        ) -> Optional[Dict]:
             appid = game.get("id")
             if not appid:
                 logger.debug(f"游戏缺少ID，跳过: {game}")
-                continue
+                return None
 
-            processed_count += 1
-            logger.debug(f"处理游戏 {processed_count}/{len(games_on_sale)}: appid={appid}")
+            async with semaphore:
+                details = await self.get_game_details(appid, client=steam_client)
 
-            # 获取详细信息
-            details = await self.get_game_details(appid)
             if not details:
                 logger.debug(f"无法获取游戏详情: appid={appid}")
-                continue
+                return None
 
-            # 检查是否免费游戏
             if details.get("is_free", False):
                 logger.debug(f"跳过免费游戏: {details.get('name')}")
-                continue
+                return None
 
             price_overview = details.get("price_overview")
             if not price_overview:
                 logger.debug(f"游戏无价格信息: {details.get('name')}")
-                continue
+                return None
 
-            current_price = price_overview.get("final", 0) / 100  # 转换为元
+            current_price = price_overview.get("final", 0) / 100
             discount_percent = price_overview.get("discount_percent", 0)
 
-            logger.debug(f"游戏 {details.get('name')}: 价格={current_price}, 折扣={discount_percent}%")
-
-            # 获取史低价格（可选，没有ITAD密钥也能继续）
             historical_low = None
             is_historical_low = False
 
-            if self.itad_api_key:
-                historical_low = await self.get_historical_low(appid)
-
-                # 判断是否接近史低
+            if self.itad_api_key and itad_client:
+                async with semaphore:
+                    historical_low = await self.get_historical_low(appid, client=itad_client)
                 if historical_low:
                     low_price = historical_low.get("price", 0)
-                    # 如果当前价格等于或非常接近史低（误差5%以内）
                     if current_price > 0 and low_price > 0:
                         diff_percent = abs(current_price - low_price) / low_price * 100
                         is_historical_low = diff_percent <= 5
                         logger.debug(f"史低对比: 当前={current_price}, 史低={low_price}, 差异={diff_percent:.1f}%")
 
-            # 收集所有游戏信息（不再过滤）
-            all_games.append({
+            return {
                 "appid": appid,
                 "name": details.get("name", "Unknown"),
                 "current_price": current_price,
@@ -291,9 +312,31 @@ class SteamStoreAPI:
                 "short_description": details.get("short_description", ""),
                 "tags": [genre["description"] for genre in details.get("genres", [])],
                 "is_historical_low": is_historical_low,
-                # 用于排序的优先级分数
-                "priority": (100 if is_historical_low else 0) + discount_percent
-            })
+                "priority": (100 if is_historical_low else 0) + discount_percent,
+            }
+
+        async with httpx.AsyncClient(timeout=30) as steam_client:
+            itad_client: Optional[httpx.AsyncClient] = None
+            if self.itad_api_key:
+                itad_client = httpx.AsyncClient(timeout=30)
+
+            try:
+                tasks = [
+                    asyncio.create_task(process_game(game, steam_client, itad_client))
+                    for game in games_on_sale
+                ]
+                processed_games = await asyncio.gather(*tasks, return_exceptions=True)
+            finally:
+                if itad_client:
+                    await itad_client.aclose()
+
+        all_games = []
+        for item in processed_games:
+            if isinstance(item, Exception):
+                logger.error(f"处理史低游戏时出现异常: {item}")
+                continue
+            if item:
+                all_games.append(item)
 
         if not all_games:
             logger.warning("处理后无可用游戏")
