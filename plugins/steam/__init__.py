@@ -1069,7 +1069,7 @@ async def handle_steam_price(args: Message = CommandArg()):
         await steam_price_query.finish("❌ 未找到相关游戏，请检查名称后重试")
 
     appid = search_result.get("appid")
-    english_name = search_result.get("english_name") or search_result.get("name")
+    english_name = search_result.get("name")
 
     # 获取价格信息
     price_info = await steam_store_api.get_game_price_info(
@@ -1080,12 +1080,12 @@ async def handle_steam_price(args: Message = CommandArg()):
         await steam_price_query.finish("❌ 未能获取该游戏的价格信息")
 
     title = price_info.get("name") or english_name or game_name
-    en_title = price_info.get("english_name") or english_name
+    en_title = price_info.get("english_name")
     image_url = price_info.get("image") or search_result.get("image")
 
     message_lines = [f"🎮 {title}", f"🔗 https://store.steampowered.com/app/{appid}"]
 
-    if en_title:
+    if en_title and en_title != title:
         message_lines.append(f"英文名: {en_title}")
 
     message_lines.append("\n当前价格：")
@@ -1101,7 +1101,7 @@ async def handle_steam_price(args: Message = CommandArg()):
         message_lines.append(line)
 
     historical_low = price_info.get("historical_low")
-    if historical_low is not None:
+    if historical_low:
         low_currency = price_info.get("historical_low_currency", "CNY").upper()
         low_date = price_info.get("historical_low_date")
         low_text = _format_price_with_currency(float(historical_low), low_currency)
@@ -1312,14 +1312,14 @@ async def handle_steam_help(bot: Bot, event: MessageEvent):
 /steam游戏库 [@用户] - 查看完整游戏库
 /steam视奸 - 查看所有好友在线状态
 
-【商店功能】
-/steam价格 <游戏名> [| 对比区列表] - 查询国区价格、各区折扣&史低，自动翻译英文名
-  示例：/steam价格 艾尔登法环 | us jp
-/steam史低 - 查看热门史低游戏
-/steam史低 <类型> - 查看特定类型的史低游戏
-  示例：/steam史低 类银河恶魔城
-/steam榜单 - 查看Steam全球热销榜
-/steam促销 - 查看当前促销活动信息
+  【商店功能】⭐新功能⭐
+  /steam价格 <游戏名> [| 对比区列表] - 查询游戏国区价格、史低和折扣
+    示例：/steam价格 艾尔登法环 | us jp
+  /steam史低 - 查看热门史低游戏
+  /steam史低 <类型> - 查看特定类型的史低游戏
+    示例：/steam史低 类银河恶魔城
+  /steam榜单 - 查看Steam全球热销榜
+  /steam促销 - 查看当前促销活动信息
 
 【播报功能】
 /steam启用播报 - 启用游戏状态播报

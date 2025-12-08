@@ -228,67 +228,37 @@ class SteamStoreAPI:
 
     async def search_game(self, keyword: str) -> Optional[Dict]:
         """
-        搜索游戏并返回官方英文名（支持中文输入自动翻译）
+        搜索游戏以获取官方英文名和AppID
 
         Args:
-            keyword: 游戏关键字（支持中文/英文）
+            keyword: 游戏关键字
 
         Returns:
-            包含 appid、name(中文名)、english_name(官方英文名)、image 的字典
+            包含 appid、name、image 的字典
         """
         if not keyword:
             return None
 
         try:
             async with httpx.AsyncClient(timeout=20) as client:
-                # 先使用中文环境搜索，便于匹配中文输入
-                cn_params = {"term": keyword, "cc": "cn", "l": "schinese"}
-                cn_resp = await client.get(
-                    "https://store.steampowered.com/api/storesearch/", params=cn_params
+                params = {"term": keyword, "cc": "cn", "l": "english"}
+                response = await client.get(
+                    "https://store.steampowered.com/api/storesearch/", params=params
                 )
-                if cn_resp.status_code != 200:
-                    logger.error(f"搜索游戏失败: {cn_resp.status_code}")
+                if response.status_code != 200:
+                    logger.error(f"搜索游戏失败: {response.status_code}")
                     return None
 
-                cn_items = cn_resp.json().get("items", [])
-                if not cn_items:
+                data = response.json()
+                items = data.get("items", [])
+                if not items:
                     return None
 
-                item = cn_items[0]
-                appid = item.get("id")
-                localized_name = item.get("name")
-                image = item.get("tiny_image")
-
-                english_name = localized_name
-                # 再获取官方英文名
-                try:
-                    en_params = {"term": keyword, "cc": "us", "l": "english"}
-                    en_resp = await client.get(
-                        "https://store.steampowered.com/api/storesearch/", params=en_params
-                    )
-                    if en_resp.status_code == 200:
-                        en_items = en_resp.json().get("items", [])
-                        if en_items:
-                            english_name = en_items[0].get("name", english_name)
-                except Exception:
-                    pass
-
-                # 如果有appid，优先用app详情获取官方英文名，确保准确
-                if appid:
-                    try:
-                        en_details = await self.get_game_details(
-                            appid, country="us", language="english", client=client
-                        )
-                        if en_details:
-                            english_name = en_details.get("name", english_name)
-                    except Exception:
-                        pass
-
+                item = items[0]
                 return {
-                    "appid": appid,
-                    "name": localized_name,
-                    "english_name": english_name,
-                    "image": image,
+                    "appid": item.get("id"),
+                    "name": item.get("name"),
+                    "image": item.get("tiny_image"),
                 }
         except Exception as e:
             logger.error(f"搜索Steam游戏失败: {e}", exc_info=True)
