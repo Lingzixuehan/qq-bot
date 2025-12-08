@@ -15,11 +15,12 @@ from PIL import Image, ImageDraw, ImageFont, ImageFilter
 # 资源目录
 RES_DIR = Path(__file__).parent / "res"
 
-# 字体路径
+# 字体路径（默认指向仓库内字体，避免中文显示乱码）
+REPO_ROOT = Path(__file__).resolve().parents[2]
 FONT_PATHS = {
-    "regular": "/home/user/qq-bot/fonts/MiSans-Regular.ttf",
-    "light": "/home/user/qq-bot/fonts/MiSans-Light.ttf",
-    "bold": "/home/user/qq-bot/fonts/MiSans-Bold.ttf",
+    "regular": str(REPO_ROOT / "fonts" / "MiSans-Regular.ttf"),
+    "light": str(REPO_ROOT / "fonts" / "MiSans-Light.ttf"),
+    "bold": str(REPO_ROOT / "fonts" / "MiSans-Bold.ttf"),
 }
 
 # 字体大小常量
@@ -1252,5 +1253,125 @@ def draw_parent_status(
             img.paste(online_bar, (padding + gaming_width, bar_y), online_bar)
 
         # 离线部分（已经是背景色，不需要绘制）
+
+    return img
+
+
+def _render_tag_line(draw: ImageDraw.ImageDraw, tags: List[str], start_pos: Tuple[int, int], max_width: int) -> int:
+    """绘制标签行，返回占用的高度"""
+    x, y = start_pos
+    tag_font = get_font(FONT_SIZE_TINY, "regular")
+    tag_padding = 10
+    tag_height = 28
+    current_y = y
+    for tag in tags:
+        text_width = int(draw.textlength(tag, font=tag_font))
+        box_width = text_width + tag_padding * 2
+        if x + box_width > start_pos[0] + max_width:
+            x = start_pos[0]
+            current_y += tag_height + 6
+        shape = [x, current_y, x + box_width, current_y + tag_height]
+        draw.rounded_rectangle(shape, radius=10, fill=(70, 70, 80, 255))
+        draw.text((x + tag_padding, current_y + 6), tag, font=tag_font, fill=(220, 220, 230, 255))
+        x += box_width + 10
+
+    return (current_y - y) + tag_height
+
+
+def draw_game_list_with_tags(
+    title: str,
+    games: List[Dict[str, Any]],
+    subtitle: str = "",
+    width: int = 1100,
+) -> Image.Image:
+    """渲染包含标签和封面的游戏列表（史低推荐/热销榜通用）"""
+
+    padding = 30
+    header_height = 120
+    card_height = 210
+    card_spacing = 18
+    total_height = header_height + padding + (card_height + card_spacing) * len(games) + padding
+    img = Image.new("RGBA", (width, total_height), (24, 27, 33, 255))
+
+    draw = ImageDraw.Draw(img)
+    title_font = get_font(FONT_SIZE_TITLE, "bold")
+    subtitle_font = get_font(FONT_SIZE_MEDIUM, "regular")
+    draw.text((padding, padding), title, font=title_font, fill=(255, 255, 255, 255))
+    if subtitle:
+        draw.text((padding, padding + 60), subtitle, font=subtitle_font, fill=(190, 190, 200, 255))
+
+    card_width = width - padding * 2
+    y_offset = header_height
+
+    for idx, game in enumerate(games, 1):
+        card = Image.new("RGBA", (card_width, card_height), (255, 255, 255, 0))
+        card_bg = rounded_rectangle((card_width, card_height), 18, (42, 45, 53, 255))
+        card.paste(card_bg, (0, 0), card_bg)
+
+        card_draw = ImageDraw.Draw(card)
+        left_padding = 20
+        image_w, image_h = 300, 170
+
+        # 封面
+        header = Image.new("RGBA", (image_w, image_h), (60, 65, 75, 255))
+        if game.get("image"):
+            try:
+                header = Image.open(BytesIO(game["image"])).convert("RGBA")
+                header = header.resize((image_w, image_h), Image.Resampling.LANCZOS)
+            except Exception:
+                pass
+        header_mask = rounded_rectangle((image_w, image_h), 12, (255, 255, 255, 255))
+        header_canvas = Image.new("RGBA", (image_w, image_h), (0, 0, 0, 0))
+        header_canvas.paste(header, (0, 0), header_mask)
+        card.paste(header_canvas, (left_padding, (card_height - image_h) // 2), header_canvas)
+
+        # 文本块
+        text_x = left_padding + image_w + 20
+        name_font = get_font(FONT_SIZE_LARGE, "bold")
+        info_font = get_font(FONT_SIZE_SMALL, "regular")
+        tag_max_width = card_width - text_x - left_padding
+
+        card_draw.text((left_padding + 4, 10), f"#{idx:02d}", font=info_font, fill=(140, 150, 170, 255))
+
+        name = game.get("name", "未知游戏")
+        max_name_width = card_width - text_x - 20
+        while card_draw.textlength(name, font=name_font) > max_name_width and len(name) > 0:
+            name = name[:-1]
+        if card_draw.textlength(game.get("name", "未知游戏"), font=name_font) > max_name_width:
+            name = name[:-1] + "..."
+        card_draw.text((text_x, 24), name, font=name_font, fill=(245, 245, 248, 255))
+
+        info_line = game.get("info", "")
+        extra_line = game.get("extra", "")
+        badge = game.get("badge")
+
+        text_y = 70
+        if info_line:
+            card_draw.text((text_x, text_y), info_line, font=info_font, fill=(200, 230, 200, 255))
+            text_y += 30
+        if extra_line:
+            card_draw.text((text_x, text_y), extra_line, font=info_font, fill=(190, 190, 200, 255))
+            text_y += 30
+
+        tags = game.get("tags", [])[:8]
+        if tags:
+            consumed = _render_tag_line(card_draw, tags, (text_x, text_y + 5), tag_max_width)
+            text_y += consumed + 5
+
+        if badge:
+            badge_font = get_font(FONT_SIZE_SMALL, "bold")
+            badge_w, badge_h = 70, 32
+            badge_bg = rounded_rectangle((badge_w, badge_h), 10, (255, 108, 108, 230))
+            card.paste(badge_bg, (card_width - badge_w - 20, 20), badge_bg)
+            badge_draw = ImageDraw.Draw(card)
+            badge_draw.text(
+                (card_width - badge_w + 10, 24),
+                badge,
+                font=badge_font,
+                fill=(255, 255, 255, 255),
+            )
+
+        img.paste(card, (padding, y_offset), card)
+        y_offset += card_height + card_spacing
 
     return img
