@@ -12,6 +12,7 @@ from nonebot.adapters.onebot.v11 import Bot, MessageEvent, GroupMessageEvent, Me
 from nonebot.params import CommandArg
 from nonebot.log import logger
 from nonebot.plugin import PluginMetadata
+from nonebot.exception import FinishedException
 
 # 尝试导入可选依赖
 scheduler = None
@@ -287,6 +288,8 @@ async def handle_steam_profile(bot: Bot, event: MessageEvent, args: Message = Co
         from common.steam_profile_image import generate_steam_profile_image_base64
         img_base64 = generate_steam_profile_image_base64(player_info, recent_games, qq_user_name)
         await steam_profile.finish(MessageSegment.image(img_base64))
+    except FinishedException:
+        raise  # 重新抛出FinishedException，这是正常的控制流
     except Exception as e:
         logger.error(f"生成Steam资料图片失败: {e}")
         # 降级为文本格式
@@ -357,6 +360,8 @@ async def handle_steam_recent(bot: Bot, event: MessageEvent, args: Message = Com
         else:
             raise Exception("无法获取玩家资料")
         await steam_recent.finish(MessageSegment.image(img_base64))
+    except FinishedException:
+        raise  # 重新抛出FinishedException，这是正常的控制流
     except Exception as e:
         logger.error(f"生成最近游戏图片失败: {e}")
         # 降级为文本格式
@@ -424,6 +429,8 @@ async def handle_steam_games(bot: Bot, event: MessageEvent, args: Message = Comm
         from common.steam_profile_image import generate_steam_games_image_base64
         img_base64 = generate_steam_games_image_base64(games, qq_user_name)
         await steam_games.finish(MessageSegment.image(img_base64))
+    except FinishedException:
+        raise  # 重新抛出FinishedException，这是正常的控制流
     except Exception as e:
         logger.error(f"生成游戏库图片失败: {e}")
         # 降级为文本格式
@@ -499,6 +506,8 @@ async def handle_steam_spy(event: MessageEvent):
         friends_image = draw_friends_status(players_info_sorted, avatars, show_title=True)
         img_base64 = pil_image_to_base64(friends_image)
         await steam_spy.finish(MessageSegment.image(img_base64))
+    except FinishedException:
+        raise  # 重新抛出FinishedException，这是正常的控制流
     except Exception as e:
         logger.error(f"生成Steam好友列表图片失败: {e}")
         # 降级为文本格式
