@@ -215,10 +215,9 @@ class SteamStoreAPI:
 
         session = client or httpx.AsyncClient(timeout=30)
         try:
-            # 首先查询游戏ID
             lookup_url = f"{self.itad_base_url}/games/lookup/v1"
             lookup_params = {
-                "appid": appid,  # 使用appid参数，直接传递数字
+                "appid": appid,
                 "key": self.itad_api_key
             }
 
@@ -232,67 +231,21 @@ class SteamStoreAPI:
                 logger.debug(f"ITAD lookup未返回游戏信息: appid={appid}")
                 return None
 
-            gid = lookup_data["game"]["id"]
+            gid = lookup_data["game"].get("id")
+            if not gid:
+                logger.debug(f"ITAD lookup缺少游戏ID: appid={appid}")
+                return None
+
             logger.debug(f"ITAD game ID: {gid}")
 
-            # 使用v3 API获取价格和史低信息
-            prices_url = f"{self.itad_base_url}/games/prices/v3"
-            prices_params = {
-                "key": self.itad_api_key,
-                "country": country,
-                "shops": 61  # 61 = Steam shop ID
-            }
+            # 先尝试 v3 接口获取更精确的史低数据
+            low_info = await self._get_historical_low_v3(session, gid, country)
 
-            response = await session.post(prices_url, params=prices_params, json=[gid])
-            if response.status_code != 200:
-                logger.debug(f"ITAD prices API失败: {response.status_code}")
-                return None
+            # v3 可能因为区域或权限问题失败，尝试 v1 概览接口兜底
+            if not low_info:
+                low_info = await self._get_historical_low_v1(session, gid, country)
 
-            prices_data = response.json()
-            if not prices_data or len(prices_data) == 0:
-                logger.debug(f"ITAD prices API未返回数据: gid={gid}")
-                return None
-
-            game_data = prices_data[0]
-
-            # 提取史低信息（优先级：3个月 > 1年 > 全部时间）
-            history_low = game_data.get("historyLow", {})
-            lowest_price = None
-            lowest_currency = "CNY"
-            lowest_timestamp = None
-
-            for period in ["m3", "y1", "all"]:
-                if period in history_low and history_low[period]:
-                    low_data = history_low[period]
-                    if "amount" in low_data:
-                        lowest_price = low_data["amount"]
-                        lowest_currency = low_data.get("currency", "CNY").upper()
-                        lowest_timestamp = low_data.get("timestamp")
-                        break
-
-            if lowest_price is None:
-                logger.debug(f"未找到史低价格: gid={gid}")
-                return None
-
-            # 提取当前Steam价格
-            current_price = None
-            current_currency = lowest_currency
-            deals = game_data.get("deals", [])
-            for deal in deals:
-                shop = deal.get("shop", {})
-                if shop.get("id") == 61:  # Steam shop
-                    price_data = deal.get("price", {})
-                    current_price = price_data.get("amount")
-                    current_currency = price_data.get("currency", current_currency).upper()
-                    break
-
-            return {
-                "price": lowest_price,
-                "currency": lowest_currency,
-                "timestamp": lowest_timestamp,
-                "current_price": current_price,
-                "current_currency": current_currency,
-            }
+            return low_info
 
         except Exception as e:
             logger.error(f"获取史低价格失败 (appid={appid}): {e}", exc_info=True)
@@ -300,6 +253,95 @@ class SteamStoreAPI:
         finally:
             if client is None:
                 await session.aclose()
+
+    async def _get_historical_low_v3(self, session: httpx.AsyncClient, gid: str, country: str) -> Optional[Dict]:
+        prices_url = f"{self.itad_base_url}/games/prices/v3"
+        prices_params = {
+            "key": self.itad_api_key,
+            "country": country,
+            "shops": 61  # Steam
+        }
+
+        response = await session.post(prices_url, params=prices_params, json=[gid])
+        if response.status_code != 200:
+            logger.debug(f"ITAD prices API失败: {response.status_code}")
+            return None
+
+        prices_data = response.json()
+        if not prices_data:
+            logger.debug(f"ITAD prices API未返回数据: gid={gid}")
+            return None
+
+        game_data = prices_data[0]
+        history_low = game_data.get("historyLow", {})
+
+        lowest_price = None
+        lowest_currency = "CNY"
+        lowest_timestamp = None
+
+        for period in ["m3", "y1", "all"]:
+            if period in history_low and history_low[period]:
+                low_data = history_low[period]
+                if "amount" in low_data:
+                    lowest_price = low_data.get("amount")
+                    lowest_currency = low_data.get("currency", "CNY").upper()
+                    lowest_timestamp = low_data.get("timestamp")
+                    break
+
+        if lowest_price is None:
+            return None
+
+        current_price = None
+        current_currency = lowest_currency
+        deals = game_data.get("deals", [])
+        for deal in deals:
+            shop = deal.get("shop", {})
+            if shop.get("id") == 61:
+                price_data = deal.get("price", {})
+                current_price = price_data.get("amount")
+                current_currency = price_data.get("currency", current_currency).upper()
+                break
+
+        return {
+            "price": lowest_price,
+            "currency": lowest_currency,
+            "timestamp": lowest_timestamp,
+            "current_price": current_price,
+            "current_currency": current_currency,
+        }
+
+    async def _get_historical_low_v1(self, session: httpx.AsyncClient, gid: str, country: str) -> Optional[Dict]:
+        """使用 v1 overview 接口兜底史低价格"""
+        overview_url = f"{self.itad_base_url}/v01/game/overview/"
+        params = {
+            "key": self.itad_api_key,
+            "country": country.lower(),
+            "region": country.lower(),
+            "game_id": gid,
+            "shop": "steam",
+        }
+
+        response = await session.get(overview_url, params=params)
+        if response.status_code != 200:
+            logger.debug(f"ITAD overview 接口失败: {response.status_code}")
+            return None
+
+        data = response.json().get("data", {})
+        game_data = data.get(str(gid)) or data.get(gid)
+        if not game_data:
+            return None
+
+        lowest = game_data.get("lowest") or {}
+        if not lowest:
+            return None
+
+        return {
+            "price": lowest.get("price"),
+            "currency": (lowest.get("currency") or "CNY").upper(),
+            "timestamp": lowest.get("recorded"),
+            "current_price": None,
+            "current_currency": (lowest.get("currency") or "CNY").upper(),
+        }
 
     async def search_game(self, keyword: str) -> Optional[Dict]:
         """
@@ -514,6 +556,125 @@ class SteamStoreAPI:
             "historical_low_currency": historical_low_currency,
             "historical_low_date": historical_low_date,
         }
+
+    async def get_free_games(self, limit: int = 8) -> List[Dict]:
+        """获取当前限时免费的Steam游戏"""
+        try:
+            params = {
+                "specials": "1",
+                "maxprice": "free",
+                "cc": "cn",
+                "l": "schinese",
+                "start": 0,
+                "count": max(limit * 2, 30),
+            }
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) SteamBot/1.0",
+            }
+            async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+                response = await client.get("https://store.steampowered.com/search/", params=params, headers=headers)
+                if response.status_code != 200:
+                    logger.error(f"获取喜加一列表失败: {response.status_code}")
+                    return []
+
+                html = response.text
+
+            pattern = re.compile(
+                r'<a[^>]*class="search_result_row[^"]*"[^>]*>(?P<body>.*?)</a>',
+                re.S
+            )
+            free_games: List[Dict] = []
+            seen_ids = set()
+
+            for match in pattern.finditer(html):
+                block = match.group("body")
+                appid_match = re.search(r'data-ds-appid="([^"]+)"', match.group(0))
+                if not appid_match:
+                    continue
+                appid_raw = appid_match.group(1)
+                appid = appid_raw.split(",")[0].strip()
+                if not appid.isdigit() or appid in seen_ids:
+                    continue
+
+                discount_match = re.search(r'data-discount="(\d+)"', match.group(0))
+                discount = int(discount_match.group(1)) if discount_match else 0
+
+                price_match = re.search(r'data-price-final="(\d+)"', match.group(0))
+                final_price = int(price_match.group(1)) / 100 if price_match else None
+
+                if final_price not in (0, 0.0) and discount <= 0:
+                    continue
+
+                title_match = re.search(r'<span class="title">(.*?)</span>', block, re.S)
+                title = unescape(title_match.group(1)).strip() if title_match else "未知游戏"
+
+                image_match = re.search(r'data-ds-background-image="([^"]+)"', match.group(0))
+                image = image_match.group(1) if image_match else ""
+
+                seen_ids.add(appid)
+                free_games.append({
+                    "id": int(appid),
+                    "name": title,
+                    "discount_percent": discount,
+                    "final_price": final_price or 0,
+                    "image": image,
+                })
+
+                if len(free_games) >= limit:
+                    break
+
+            return free_games
+        except Exception as e:
+            logger.error(f"获取喜加一列表失败: {e}", exc_info=True)
+            return []
+
+    async def get_discount_recommendations(self, limit: int = 8, min_discount: int = 60) -> List[Dict]:
+        """获取高折扣游戏推荐"""
+        try:
+            raw_items = await self.search_games_on_sale(limit=limit * 2, min_discount=min_discount)
+            if not raw_items:
+                return []
+
+            results: List[Dict] = []
+            async with httpx.AsyncClient(timeout=30) as client:
+                for item in raw_items:
+                    appid = item.get("id")
+                    if not appid:
+                        continue
+                    try:
+                        details = await self.get_game_details(appid, client=client)
+                    except Exception:
+                        logger.debug("获取折扣游戏详情失败", exc_info=True)
+                        details = None
+
+                    price_overview = details.get("price_overview") if details else None
+                    final_price = price_overview.get("final", 0) / 100 if price_overview else item.get("final_price", 0)
+                    discount_percent = price_overview.get("discount_percent", item.get("discount_percent", 0)) if price_overview else item.get("discount_percent", 0)
+                    original_price = price_overview.get("initial", 0) / 100 if price_overview else None
+
+                    tags = []
+                    header_image = item.get("image", "")
+                    if details:
+                        tags = [genre.get("description", "") for genre in details.get("genres", []) if genre.get("description")]
+                        header_image = details.get("header_image", header_image)
+
+                    results.append({
+                        "appid": appid,
+                        "name": item.get("name"),
+                        "price": final_price,
+                        "discount": discount_percent,
+                        "original_price": original_price,
+                        "image": header_image,
+                        "tags": tags,
+                    })
+
+                    if len(results) >= limit:
+                        break
+
+            return results
+        except Exception as e:
+            logger.error(f"获取折扣推荐失败: {e}", exc_info=True)
+            return []
 
     async def find_historical_low_deals(
         self,

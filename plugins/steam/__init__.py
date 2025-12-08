@@ -48,7 +48,7 @@ from common.database import SteamDB
 from common.steam_api import SteamAPI, format_playtime, get_player_state_text
 
 # 导入新模块
-from .data_source import BindData, SteamInfoData, ParentData, DisableParentData
+from .data_source import BindData, SteamInfoData, ParentData, DisableParentData, SubscriptionData
 from .draw import draw_friends_status, draw_start_gaming, draw_game_list_with_tags, draw_game_price_info
 from .utils import fetch_avatar, convert_player_name_to_nickname
 from .models import Player, ProcessedPlayer
@@ -69,6 +69,9 @@ __plugin_meta__ = PluginMetadata(
         "/steam启用播报 - 在当前群启用游戏状态播报\n"
         "/steam禁用播报 - 在当前群禁用游戏状态播报\n"
         "/steam价格 <游戏名> [| 对比区列表] - 查询游戏价格和史低\n"
+        "/steam喜加一 - 查看当前限时免费游戏\n"
+        "/steam喜加一订阅 / steam喜加一退订 - 订阅或退订喜加一推送\n"
+        "/steam折扣订阅 / steam折扣退订 - 订阅或退订高折扣推送\n"
         "/steam帮助 - 显示Steam插件帮助"
     )
 )
@@ -128,6 +131,7 @@ bind_data = BindData(plugin_data_dir / "bind_data.json")
 steam_info_data = SteamInfoData(plugin_cache_dir / "steam_info.json")
 parent_data = ParentData(plugin_data_dir / "parent_data.json")
 disable_parent_data = DisableParentData(plugin_data_dir / "disabled_parents.json")
+subscription_data = SubscriptionData(plugin_data_dir / "steam_subscriptions.json")
 
 # 头像缓存目录
 avatar_cache_dir = plugin_cache_dir / "avatars"
@@ -1044,6 +1048,13 @@ steam_price_query = on_command(
     "steam价格", aliases={"steam价", "游戏价格", "steam查价"}, priority=5, block=True
 )
 
+# 喜加一与订阅
+steam_freebie = on_command("steam喜加一", aliases={"喜加一"}, priority=5, block=True)
+steam_freebie_subscribe = on_command("steam喜加一订阅", aliases={"喜加一订阅"}, priority=5, block=True)
+steam_freebie_unsubscribe = on_command("steam喜加一退订", aliases={"喜加一取消订阅"}, priority=5, block=True)
+steam_discount_subscribe = on_command("steam折扣订阅", aliases={"折扣订阅"}, priority=5, block=True)
+steam_discount_unsubscribe = on_command("steam折扣退订", aliases={"折扣取消订阅"}, priority=5, block=True)
+
 
 def _format_price_with_currency(value: float, currency: str) -> str:
     symbols = {
@@ -1152,6 +1163,90 @@ async def handle_steam_price(args: Message = CommandArg()):
                 low_text += f"，记录时间 {low_date}"
             message_lines.append(f"\n📉 史低价：{low_text}")
         await steam_price_query.finish("\n".join(message_lines))
+
+
+@steam_freebie.handle()
+async def handle_steam_freebie():
+    """查询当前喜加一"""
+    if not steam_store_api:
+        await steam_freebie.finish("❌ Steam商店功能未初始化")
+
+    await steam_freebie.send("🔍 正在查询限时免费游戏，请稍候...")
+
+    try:
+        games = await steam_store_api.get_free_games(limit=6)
+        if not games:
+            await steam_freebie.finish("暂时没有可以白嫖的游戏~")
+
+        render_games: List[Dict] = []
+        async with httpx.AsyncClient(timeout=20) as client:
+            for game in games:
+                image_bytes = await fetch_image_bytes(game.get("image"), client)
+                render_games.append(
+                    {
+                        "name": game.get("name", "未知游戏"),
+                        "image": image_bytes,
+                        "tags": ["限时免费"],
+                        "info": "￥0.00",
+                        "extra": f"折扣 -{game.get('discount_percent', 0)}%",
+                        "badge": "FREE",
+                    }
+                )
+
+        title = "🎁 Steam 喜加一"
+        img = draw_game_list_with_tags(title, render_games, subtitle="限时领取，记得入库！")
+        await steam_freebie.finish(MessageSegment.image(pil_image_to_base64(img)))
+    except FinishedException:
+        raise
+    except Exception as e:
+        logger.error(f"查询喜加一失败: {e}", exc_info=True)
+        await steam_freebie.finish("❌ 查询失败，请稍后再试")
+
+
+def _ensure_group(event: MessageEvent) -> Optional[str]:
+    if isinstance(event, GroupMessageEvent):
+        return str(event.group_id)
+    return None
+
+
+@steam_freebie_subscribe.handle()
+async def handle_freebie_subscribe(event: MessageEvent):
+    parent_id = _ensure_group(event)
+    if not parent_id:
+        await steam_freebie_subscribe.finish("❌ 该命令只能在群聊中使用")
+
+    subscription_data.add(parent_id, "freebie")
+    await steam_freebie_subscribe.finish("✅ 已订阅喜加一推送")
+
+
+@steam_freebie_unsubscribe.handle()
+async def handle_freebie_unsubscribe(event: MessageEvent):
+    parent_id = _ensure_group(event)
+    if not parent_id:
+        await steam_freebie_unsubscribe.finish("❌ 该命令只能在群聊中使用")
+
+    subscription_data.remove(parent_id, "freebie")
+    await steam_freebie_unsubscribe.finish("✅ 已取消喜加一推送")
+
+
+@steam_discount_subscribe.handle()
+async def handle_discount_subscribe(event: MessageEvent):
+    parent_id = _ensure_group(event)
+    if not parent_id:
+        await steam_discount_subscribe.finish("❌ 该命令只能在群聊中使用")
+
+    subscription_data.add(parent_id, "discount")
+    await steam_discount_subscribe.finish("✅ 已订阅高折扣推送")
+
+
+@steam_discount_unsubscribe.handle()
+async def handle_discount_unsubscribe(event: MessageEvent):
+    parent_id = _ensure_group(event)
+    if not parent_id:
+        await steam_discount_unsubscribe.finish("❌ 该命令只能在群聊中使用")
+
+    subscription_data.remove(parent_id, "discount")
+    await steam_discount_unsubscribe.finish("✅ 已取消高折扣推送")
 
 
 # Steam史低游戏查询
@@ -1352,6 +1447,9 @@ async def handle_steam_help(bot: Bot, event: MessageEvent):
   示例：/steam史低 类银河恶魔城
 /steam榜单 - 查看Steam全球热销榜
 /steam促销 - 查看当前促销活动信息
+/steam喜加一 - 查看限时免费游戏
+/steam喜加一订阅 / steam喜加一退订 - 管理喜加一推送
+/steam折扣订阅 / steam折扣退订 - 管理高折扣推送
 
 【播报功能】
 /steam启用播报 - 启用游戏状态播报
@@ -1395,7 +1493,10 @@ async def handle_steam_help(bot: Bot, event: MessageEvent):
             "/steam史低 <类型> - 查看特定类型的史低游戏\n"
             "  示例：/steam史低 类银河恶魔城\n"
             "/steam榜单 - 查看Steam全球热销榜\n"
-            "/steam促销 - 查看当前促销活动信息",
+            "/steam促销 - 查看当前促销活动信息\n"
+            "/steam喜加一 - 查看限时免费游戏\n"
+            "/steam喜加一订阅 / steam喜加一退订 - 管理喜加一推送\n"
+            "/steam折扣订阅 / steam折扣退订 - 管理高折扣推送",
         ),
         (
             "【播报功能】",
@@ -1481,6 +1582,8 @@ async def check_steam_status():
 
 # Steam促销检测
 _last_sale_notification = None  # 记录上次通知的促销活动
+_last_freebie_ids: set[str] = set()
+_last_discount_ids: set[str] = set()
 
 
 async def check_steam_sales():
@@ -1551,6 +1654,120 @@ async def check_steam_sales():
         logger.error(f"检查Steam促销失败: {e}")
 
 
+async def check_steam_freebies():
+    """定期推送喜加一"""
+    global _last_freebie_ids
+
+    if not steam_store_api:
+        return
+
+    groups = subscription_data.get("freebie")
+    if not groups:
+        return
+
+    try:
+        games = await steam_store_api.get_free_games(limit=6)
+        if not games:
+            return
+
+        new_ids = {str(g.get("id")) for g in games if g.get("id")}
+        if new_ids and new_ids == _last_freebie_ids:
+            return
+
+        render_games: List[Dict] = []
+        async with httpx.AsyncClient(timeout=20) as client:
+            for game in games:
+                image_bytes = await fetch_image_bytes(game.get("image"), client)
+                render_games.append(
+                    {
+                        "name": game.get("name", "未知游戏"),
+                        "image": image_bytes,
+                        "tags": ["限时免费"],
+                        "info": "￥0.00",
+                        "extra": f"折扣 -{game.get('discount_percent', 0)}%",
+                        "badge": "FREE",
+                    }
+                )
+
+        img = draw_game_list_with_tags("🎁 Steam 喜加一", render_games, subtitle="本期免费领取列表")
+        image_msg = MessageSegment.image(pil_image_to_base64(img))
+
+        from nonebot import get_bot
+        bot = get_bot()
+
+        for gid in groups:
+            if not gid.isdigit() or disable_parent_data.is_disabled(gid):
+                continue
+            try:
+                await bot.send_group_msg(group_id=int(gid), message=image_msg)
+            except Exception:
+                logger.debug("发送喜加一推送失败", exc_info=True)
+
+        _last_freebie_ids = new_ids
+    except Exception as e:
+        logger.error(f"推送喜加一失败: {e}", exc_info=True)
+
+
+async def check_steam_discounts():
+    """定期推送高折扣游戏"""
+    global _last_discount_ids
+
+    if not steam_store_api:
+        return
+
+    groups = subscription_data.get("discount")
+    if not groups:
+        return
+
+    try:
+        games = await steam_store_api.get_discount_recommendations(limit=6, min_discount=60)
+        if not games:
+            return
+
+        new_ids = {str(g.get("appid")) for g in games if g.get("appid")}
+        if new_ids and new_ids == _last_discount_ids:
+            return
+
+        render_games: List[Dict] = []
+        async with httpx.AsyncClient(timeout=20) as client:
+            for game in games:
+                image_bytes = await fetch_image_bytes(game.get("image"), client)
+                price_text = f"¥{game.get('price', 0):.2f}" if game.get("price") else "免费"
+                if game.get("discount", 0):
+                    price_text += f" (-{game.get('discount')}%)"
+                extra = ""
+                if game.get("original_price"):
+                    extra = f"原价 ¥{game['original_price']:.2f}"
+                render_games.append(
+                    {
+                        "name": game.get("name", "未知游戏"),
+                        "image": image_bytes,
+                        "tags": game.get("tags", []) or [],
+                        "info": price_text,
+                        "extra": extra,
+                        "badge": "折扣",
+                    }
+                )
+
+        img = draw_game_list_with_tags("💰 Steam 高折扣推荐", render_games, subtitle="每日精选折扣")
+        image_msg = MessageSegment.image(pil_image_to_base64(img))
+
+        from nonebot import get_bot
+        bot = get_bot()
+
+        for gid in groups:
+            if not gid.isdigit() or disable_parent_data.is_disabled(gid):
+                continue
+            try:
+                await bot.send_group_msg(group_id=int(gid), message=image_msg)
+            except Exception:
+                logger.debug("发送折扣推送失败", exc_info=True)
+
+        _last_discount_ids = new_ids
+    except Exception as e:
+        logger.error(f"推送折扣推荐失败: {e}", exc_info=True)
+
+
 # 只在apscheduler可用时注册定时任务
 if HAS_APSCHEDULER and scheduler:
     scheduler.scheduled_job("interval", seconds=STEAM_BROADCAST_INTERVAL, id="steam_status_check")(check_steam_status)
@@ -1559,6 +1776,11 @@ if HAS_APSCHEDULER and scheduler:
     # 每天上午10点检查Steam促销
     scheduler.scheduled_job("cron", hour=10, minute=0, id="steam_sales_check")(check_steam_sales)
     logger.info("Steam促销检查任务已注册，每天10:00执行")
+
+    # 喜加一与折扣推送
+    scheduler.scheduled_job("cron", hour=12, minute=0, id="steam_freebie_check")(check_steam_freebies)
+    scheduler.scheduled_job("cron", hour=18, minute=0, id="steam_discount_check")(check_steam_discounts)
+    logger.info("喜加一与折扣推送任务已注册，分别在每日12:00与18:00执行")
 
 
 async def broadcast_start_gaming(player: Dict):
@@ -1637,6 +1859,7 @@ async def shutdown():
         steam_info_data.save()
         parent_data.save()
         disable_parent_data.save()
+        subscription_data.save()
         logger.info("Steam插件数据已保存")
     except Exception as e:
         logger.error(f"保存Steam插件数据失败: {e}")
