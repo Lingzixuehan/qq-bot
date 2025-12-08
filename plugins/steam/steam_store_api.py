@@ -52,23 +52,38 @@ class SteamStoreAPI:
                 "cc": "cn",  # 中国区
                 "l": "schinese",  # 简体中文
                 "specials": "1",  # 仅显示特价
+                "json": "1",
+                "start": 0,
+                "count": min(limit * 2, 100)  # 最多100个
             }
 
             if tags:
                 params["tags"] = ",".join(tags)
 
-            async with httpx.AsyncClient(timeout=30) as client:
-                # Steam的搜索API（非官方，但常用）
+            async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+                # Steam的搜索API
                 url = "https://store.steampowered.com/search/results/"
-                params["json"] = "1"
 
+                logger.debug(f"调用Steam搜索API: url={url}, params={params}")
                 response = await client.get(url, params=params)
+
                 if response.status_code != 200:
-                    logger.error(f"Steam搜索API返回错误: {response.status_code}")
+                    logger.error(f"Steam搜索API返回错误: {response.status_code}, 响应: {response.text[:200]}")
                     return []
 
-                data = response.json()
-                items = data.get("items", [])[:limit]
+                try:
+                    data = response.json()
+                except Exception as e:
+                    logger.error(f"解析Steam搜索API响应失败: {e}, 响应内容: {response.text[:200]}")
+                    return []
+
+                total = data.get("total", 0)
+                items = data.get("items", [])
+                logger.info(f"Steam搜索API返回: 总数={total}, 当前批次={len(items)}")
+
+                if not items:
+                    logger.warning(f"Steam搜索API未返回任何游戏，data keys: {data.keys()}")
+                    return []
 
                 # 过滤折扣百分比
                 filtered_items = []
@@ -76,11 +91,13 @@ class SteamStoreAPI:
                     discount = item.get("discount_percent", 0)
                     if discount >= min_discount:
                         filtered_items.append(item)
+                        logger.debug(f"找到符合折扣要求的游戏: {item.get('name')} ({discount}%)")
 
-                return filtered_items
+                logger.info(f"过滤后剩余 {len(filtered_items)} 个游戏（折扣≥{min_discount}%）")
+                return filtered_items[:limit]
 
         except Exception as e:
-            logger.error(f"搜索打折游戏失败: {e}")
+            logger.error(f"搜索打折游戏失败: {e}", exc_info=True)
             return []
 
     async def get_game_details(self, appid: int, country: str = "cn") -> Optional[Dict]:
@@ -188,48 +205,72 @@ class SteamStoreAPI:
         """
         results = []
 
+        logger.info(f"开始查找史低游戏，limit={limit}, tags={tags}")
+
         # 搜索当前大幅折扣的游戏
         tag_list = [tags] if tags else None
         games_on_sale = await self.search_games_on_sale(
-            limit=limit * 2,  # 获取更多，因为要筛选
+            limit=limit * 3,  # 获取更多，因为要筛选
             min_discount=50,
             tags=tag_list
         )
 
+        logger.info(f"搜索到 {len(games_on_sale)} 个打折游戏")
+
+        if not games_on_sale:
+            logger.warning("未找到打折游戏")
+            return []
+
+        processed_count = 0
         for game in games_on_sale:
             appid = game.get("id")
             if not appid:
+                logger.debug(f"游戏缺少ID，跳过: {game}")
                 continue
+
+            processed_count += 1
+            logger.debug(f"处理游戏 {processed_count}/{len(games_on_sale)}: appid={appid}")
 
             # 获取详细信息
             details = await self.get_game_details(appid)
             if not details:
+                logger.debug(f"无法获取游戏详情: appid={appid}")
                 continue
 
             # 检查是否免费游戏
             if details.get("is_free", False):
+                logger.debug(f"跳过免费游戏: {details.get('name')}")
                 continue
 
             price_overview = details.get("price_overview")
             if not price_overview:
+                logger.debug(f"游戏无价格信息: {details.get('name')}")
                 continue
 
             current_price = price_overview.get("final", 0) / 100  # 转换为元
             discount_percent = price_overview.get("discount_percent", 0)
 
-            # 获取史低价格
-            historical_low = await self.get_historical_low(appid)
+            logger.debug(f"游戏 {details.get('name')}: 价格={current_price}, 折扣={discount_percent}%")
 
-            # 判断是否接近史低
+            # 获取史低价格（可选，没有ITAD密钥也能继续）
+            historical_low = None
             is_historical_low = False
-            if historical_low:
-                low_price = historical_low.get("price", 0)
-                # 如果当前价格等于或非常接近史低（误差5%以内）
-                if current_price > 0 and low_price > 0:
-                    diff_percent = abs(current_price - low_price) / low_price * 100
-                    is_historical_low = diff_percent <= 5
 
-            if is_historical_low or discount_percent >= 75:  # 史低或折扣≥75%
+            if self.itad_api_key:
+                historical_low = await self.get_historical_low(appid)
+
+                # 判断是否接近史低
+                if historical_low:
+                    low_price = historical_low.get("price", 0)
+                    # 如果当前价格等于或非常接近史低（误差5%以内）
+                    if current_price > 0 and low_price > 0:
+                        diff_percent = abs(current_price - low_price) / low_price * 100
+                        is_historical_low = diff_percent <= 5
+                        logger.debug(f"史低对比: 当前={current_price}, 史低={low_price}, 差异={diff_percent:.1f}%")
+
+            # 条件：史低价或折扣≥70%（降低门槛以便更容易找到游戏）
+            if is_historical_low or discount_percent >= 70:
+                logger.info(f"找到符合条件的游戏: {details.get('name')} (折扣{discount_percent}%, 史低={is_historical_low})")
                 results.append({
                     "appid": appid,
                     "name": details.get("name", "Unknown"),
@@ -244,8 +285,10 @@ class SteamStoreAPI:
                 })
 
             if len(results) >= limit:
+                logger.info(f"已找到足够数量的游戏: {len(results)}")
                 break
 
+        logger.info(f"史低游戏查找完成，共找到 {len(results)} 个")
         return results
 
     async def get_top_sellers(self, limit: int = 10) -> List[Dict]:
