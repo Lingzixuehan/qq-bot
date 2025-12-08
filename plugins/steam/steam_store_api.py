@@ -128,6 +128,7 @@ class SteamStoreAPI:
         appid: int,
         country: str = "cn",
         client: Optional[httpx.AsyncClient] = None,
+        language: str = "schinese",
     ) -> Optional[Dict]:
         """
         获取游戏详细信息
@@ -145,7 +146,7 @@ class SteamStoreAPI:
             params = {
                 "appids": appid,
                 "cc": country,
-                "l": "schinese"
+                "l": language,
             }
 
             response = await session.get(url, params=params)
@@ -224,6 +225,177 @@ class SteamStoreAPI:
         finally:
             if client is None:
                 await session.aclose()
+
+    async def search_game(self, keyword: str) -> Optional[Dict]:
+        """
+        搜索游戏以获取官方英文名和AppID
+
+        Args:
+            keyword: 游戏关键字
+
+        Returns:
+            包含 appid、name、image 的字典
+        """
+        if not keyword:
+            return None
+
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                params = {"term": keyword, "cc": "cn", "l": "english"}
+                response = await client.get(
+                    "https://store.steampowered.com/api/storesearch/", params=params
+                )
+                if response.status_code != 200:
+                    logger.error(f"搜索游戏失败: {response.status_code}")
+                    return None
+
+                data = response.json()
+                items = data.get("items", [])
+                if not items:
+                    return None
+
+                item = items[0]
+                return {
+                    "appid": item.get("id"),
+                    "name": item.get("name"),
+                    "image": item.get("tiny_image"),
+                }
+        except Exception as e:
+            logger.error(f"搜索Steam游戏失败: {e}", exc_info=True)
+            return None
+
+    async def get_game_price_info(
+        self,
+        appid: int,
+        regions: List[str],
+        exchange_rates: Dict[str, float],
+        english_name: Optional[str] = None,
+    ) -> Optional[Dict]:
+        """
+        获取游戏价格、折扣、史低信息
+
+        Args:
+            appid: Steam 游戏ID
+            regions: 需要查询的国家/地区代码列表
+            exchange_rates: 货币到人民币的汇率字典
+            english_name: 官方英文名（可选）
+
+        Returns:
+            包含价格信息的字典
+        """
+        if not appid:
+            return None
+
+        unique_regions = []
+        for region in regions or ["cn"]:
+            region = region.lower()
+            if region and region not in unique_regions:
+                unique_regions.append(region)
+
+        prices: List[Dict] = []
+        image = ""
+        localized_name: Optional[str] = None
+
+        async with httpx.AsyncClient(timeout=30) as client:
+            for region in unique_regions:
+                details = await self.get_game_details(appid, country=region, client=client)
+                if not details:
+                    logger.debug(f"无法获取 {appid} 的 {region} 区信息")
+                    continue
+
+                if not localized_name:
+                    localized_name = details.get("name")
+                if not image:
+                    image = details.get("header_image", "")
+
+                price_overview = details.get("price_overview")
+                if not price_overview:
+                    logger.debug(f"{appid} 在 {region} 区无价格信息")
+                    continue
+
+                currency = price_overview.get("currency", "CNY").upper()
+                price = price_overview.get("final", 0) / 100
+                original_price = price_overview.get("initial", 0) / 100
+                discount = price_overview.get("discount_percent", 0)
+
+                converted_price = None
+                if currency in exchange_rates:
+                    converted_price = price * float(exchange_rates[currency])
+
+                prices.append(
+                    {
+                        "region": region,
+                        "currency": currency,
+                        "price": price,
+                        "original_price": original_price,
+                        "discount": discount,
+                        "converted_price": converted_price,
+                    }
+                )
+
+        # 获取英文名
+        if not english_name:
+            try:
+                async with httpx.AsyncClient(timeout=20) as client:
+                    en_details = await self.get_game_details(
+                        appid, country=unique_regions[0], client=client, language="english"
+                    )
+                    if en_details:
+                        english_name = en_details.get("name", english_name)
+            except Exception:
+                pass
+
+        historical_low_price = None
+        historical_low_currency = "CNY"
+        historical_low_date = None
+
+        if self.itad_api_key:
+            async with httpx.AsyncClient(timeout=30) as itad_client:
+                low_info = await self.get_historical_low(appid, client=itad_client)
+                if low_info:
+                    raw_price = low_info.get("price")
+                    if isinstance(raw_price, dict):
+                        historical_low_currency = raw_price.get(
+                            "currency", historical_low_currency
+                        ).upper()
+                        historical_low_price = raw_price.get("amount") or raw_price.get(
+                            "value"
+                        )
+                    else:
+                        historical_low_price = raw_price
+                        historical_low_currency = (
+                            low_info.get("currency") or historical_low_currency
+                        ).upper()
+
+                    timestamp = (
+                        low_info.get("timestamp")
+                        or low_info.get("added")
+                        or low_info.get("since")
+                        or low_info.get("recorded")
+                    )
+                    try:
+                        if isinstance(timestamp, str) and timestamp.isdigit():
+                            timestamp = int(timestamp)
+                        if isinstance(timestamp, (int, float)):
+                            historical_low_date = datetime.fromtimestamp(int(timestamp)).strftime(
+                                "%Y-%m-%d"
+                            )
+                    except Exception:
+                        historical_low_date = None
+
+        if not prices:
+            return None
+
+        return {
+            "appid": appid,
+            "name": localized_name or english_name,
+            "english_name": english_name,
+            "prices": prices,
+            "image": image,
+            "historical_low": historical_low_price,
+            "historical_low_currency": historical_low_currency,
+            "historical_low_date": historical_low_date,
+        }
 
     async def find_historical_low_deals(
         self,
