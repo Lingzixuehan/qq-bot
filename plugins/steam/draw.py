@@ -1278,6 +1278,182 @@ def _render_tag_line(draw: ImageDraw.ImageDraw, tags: List[str], start_pos: Tupl
     return (current_y - y) + tag_height
 
 
+def draw_game_price_info(
+    game_name: str,
+    english_name: Optional[str],
+    appid: int,
+    header_image: Optional[bytes],
+    prices: List[Dict[str, Any]],
+    historical_low: Optional[float],
+    historical_low_currency: str,
+    historical_low_date: Optional[str],
+    width: int = 950
+) -> Image.Image:
+    """
+    渲染游戏价格信息卡片
+
+    Args:
+        game_name: 游戏中文名
+        english_name: 游戏英文名
+        appid: Steam AppID
+        header_image: 游戏头图（字节数据）
+        prices: 价格列表，每个包含 {region, currency, price, discount, converted_price}
+        historical_low: 史低价格
+        historical_low_currency: 史低货币
+        historical_low_date: 史低日期
+        width: 图片宽度
+
+    Returns:
+        价格信息图片
+    """
+    padding = 30
+    header_height = 250  # 游戏头图区域
+    info_height = 150    # 基本信息区域
+    price_row_height = 50
+    price_section_height = len(prices) * price_row_height + 80
+    low_section_height = 80 if historical_low else 0
+    total_height = padding * 2 + header_height + info_height + price_section_height + low_section_height
+
+    # 创建画布
+    img = Image.new("RGBA", (width, total_height), (24, 27, 33, 255))
+    draw = ImageDraw.Draw(img)
+
+    y_offset = padding
+
+    # 游戏头图
+    header_w, header_h = width - padding * 2, header_height
+    header = Image.new("RGBA", (header_w, header_h), (42, 45, 53, 255))
+    if header_image:
+        try:
+            header_img = Image.open(BytesIO(header_image)).convert("RGBA")
+            # 调整大小保持比例
+            aspect = header_img.width / header_img.height
+            if aspect > header_w / header_h:
+                new_w = header_w
+                new_h = int(header_w / aspect)
+            else:
+                new_h = header_h
+                new_w = int(header_h * aspect)
+            header_img = header_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+            # 居中粘贴
+            x_pos = (header_w - new_w) // 2
+            y_pos = (header_h - new_h) // 2
+            header.paste(header_img, (x_pos, y_pos))
+        except Exception:
+            pass
+
+    # 圆角头图
+    header_mask = rounded_rectangle((header_w, header_h), 15, (255, 255, 255, 255))
+    header_canvas = Image.new("RGBA", (header_w, header_h), (0, 0, 0, 0))
+    header_canvas.paste(header, (0, 0), header_mask)
+    img.paste(header_canvas, (padding, y_offset), header_canvas)
+    y_offset += header_height + 20
+
+    # 游戏名称和基本信息
+    title_font = get_font(FONT_SIZE_TITLE, "bold")
+    subtitle_font = get_font(FONT_SIZE_MEDIUM, "light")
+    small_font = get_font(FONT_SIZE_SMALL, "regular")
+
+    # 中文名
+    draw.text((padding, y_offset), game_name, font=title_font, fill=(255, 255, 255, 255))
+    y_offset += 55
+
+    # 英文名
+    if english_name and english_name != game_name:
+        draw.text((padding, y_offset), english_name, font=subtitle_font, fill=(180, 180, 190, 255))
+        y_offset += 40
+
+    # Steam链接
+    store_link = f"https://store.steampowered.com/app/{appid}"
+    draw.text((padding, y_offset), f"🔗 {store_link}", font=small_font, fill=(100, 150, 200, 255))
+    y_offset += 50
+
+    # 价格对比区域标题
+    price_title_font = get_font(FONT_SIZE_LARGE, "bold")
+    draw.text((padding, y_offset), "💰 价格对比", font=price_title_font, fill=(255, 255, 255, 255))
+    y_offset += 45
+
+    # 价格列表
+    region_font = get_font(FONT_SIZE_NORMAL, "regular")
+    price_font = get_font(FONT_SIZE_NORMAL, "bold")
+
+    region_names = {
+        "cn": "中国🇨🇳",
+        "us": "美国🇺🇸",
+        "ua": "乌克兰🇺🇦",
+        "jp": "日本🇯🇵",
+        "ar": "阿根廷🇦🇷",
+        "tr": "土耳其🇹🇷",
+    }
+
+    for price_data in prices:
+        region = price_data.get("region", "").lower()
+        region_name = region_names.get(region, region.upper())
+        price = price_data.get("price", 0)
+        original_price = price_data.get("original_price", 0)
+        discount = price_data.get("discount", 0)
+        currency = price_data.get("currency", "CNY")
+        converted_price = price_data.get("converted_price")
+
+        # 货币符号
+        currency_symbols = {
+            "CNY": "¥", "USD": "$", "EUR": "€",
+            "JPY": "¥", "UAH": "₴", "ARS": "$", "TRY": "₺"
+        }
+        symbol = currency_symbols.get(currency, currency + " ")
+
+        # 区域名
+        draw.text((padding + 20, y_offset), region_name, font=region_font, fill=(200, 200, 210, 255))
+
+        # 价格
+        price_text = f"{symbol}{price:.2f}"
+        price_color = (144, 186, 106, 255) if discount > 0 else (255, 255, 255, 255)
+        draw.text((padding + 200, y_offset), price_text, font=price_font, fill=price_color)
+
+        # 折扣
+        if discount > 0:
+            discount_text = f"-{discount}%"
+            discount_w = draw.textlength(discount_text, font=price_font)
+            discount_bg = rounded_rectangle((int(discount_w) + 20, 32), 8, (144, 186, 106, 200))
+            img.paste(discount_bg, (padding + 380, y_offset - 5), discount_bg)
+            draw.text((padding + 390, y_offset), discount_text, font=price_font, fill=(255, 255, 255, 255))
+
+        # 原价（如果有折扣）
+        if discount > 0 and original_price > price:
+            original_text = f"{symbol}{original_price:.2f}"
+            draw.text((padding + 500, y_offset), original_text, font=region_font, fill=(150, 150, 160, 255))
+            # 删除线
+            text_w = draw.textlength(original_text, font=region_font)
+            draw.line(
+                [(padding + 500, y_offset + 12), (padding + 500 + text_w, y_offset + 12)],
+                fill=(150, 150, 160, 255),
+                width=2
+            )
+
+        # 换算价（如果不是CNY）
+        if converted_price and currency != "CNY":
+            converted_text = f"≈ ¥{converted_price:.2f}"
+            draw.text((padding + 650, y_offset), converted_text, font=region_font, fill=(160, 170, 180, 255))
+
+        y_offset += price_row_height
+
+    # 史低价格
+    if historical_low:
+        y_offset += 20
+        low_title_font = get_font(FONT_SIZE_LARGE, "bold")
+        draw.text((padding, y_offset), "📉 历史最低价", font=low_title_font, fill=(255, 255, 255, 255))
+        y_offset += 40
+
+        low_symbol = {"CNY": "¥", "USD": "$", "EUR": "€"}.get(historical_low_currency, historical_low_currency + " ")
+        low_text = f"{low_symbol}{historical_low:.2f}"
+        if historical_low_date:
+            low_text += f"  ({historical_low_date})"
+
+        draw.text((padding + 20, y_offset), low_text, font=price_font, fill=(255, 180, 100, 255))
+
+    return img
+
+
 def draw_game_list_with_tags(
     title: str,
     games: List[Dict[str, Any]],

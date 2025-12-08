@@ -49,7 +49,7 @@ from common.steam_api import SteamAPI, format_playtime, get_player_state_text
 
 # 导入新模块
 from .data_source import BindData, SteamInfoData, ParentData, DisableParentData
-from .draw import draw_friends_status, draw_start_gaming, draw_game_list_with_tags
+from .draw import draw_friends_status, draw_start_gaming, draw_game_list_with_tags, draw_game_price_info
 from .utils import fetch_avatar, convert_player_name_to_nickname
 from .models import Player, ProcessedPlayer
 from .steam_store_api import SteamStoreAPI
@@ -1093,49 +1093,62 @@ async def handle_steam_price(args: Message = CommandArg()):
     if not price_info:
         await steam_price_query.finish("❌ 未能获取该游戏的价格信息")
 
-    title = price_info.get("name") or english_name or game_name
-    en_title = price_info.get("english_name") or english_name
+    # 准备渲染数据
+    game_name_cn = price_info.get("name") or english_name or game_name
+    game_name_en = price_info.get("english_name") or english_name
     image_url = price_info.get("image") or search_result.get("image")
 
-    message_lines = [f"🎮 {title}", f"🔗 https://store.steampowered.com/app/{appid}"]
-
-    if en_title:
-        message_lines.append(f"英文名: {en_title}")
-
-    message_lines.append("\n当前价格：")
-    for price in price_info.get("prices", []):
-        line = f"- {price['region'].upper()}: "
-        line += _format_price_with_currency(price["price"], price["currency"])
-        if price.get("discount", 0):
-            line += f" (-{price['discount']}%)"
-        if price.get("converted_price") is not None and price["currency"].upper() != "CNY":
-            line += f" ≈ ¥{price['converted_price']:.2f}"
-        if price.get("original_price") and price.get("discount", 0):
-            line += f" (原价 {_format_price_with_currency(price['original_price'], price['currency'])})"
-        message_lines.append(line)
-
-    historical_low = price_info.get("historical_low")
-    if historical_low is not None:
-        low_currency = price_info.get("historical_low_currency", "CNY").upper()
-        low_date = price_info.get("historical_low_date")
-        low_text = _format_price_with_currency(float(historical_low), low_currency)
-        if low_currency != "CNY" and low_currency in STEAM_PRICE_EXCHANGE_RATES:
-            low_text += f" (约¥{float(historical_low) * float(STEAM_PRICE_EXCHANGE_RATES[low_currency]):.2f})"
-        if low_date:
-            low_text += f"，记录时间 {low_date}"
-        message_lines.append(f"\n📉 史低价：{low_text}")
-    else:
-        if ITAD_API_KEY:
-            message_lines.append("\n📉 史低价：暂无数据（ITAD 查询无结果）")
-        else:
-            message_lines.append("\n📉 史低价：暂无数据（需要配置 ITAD API 密钥）")
-
-    full_message = "\n".join(message_lines)
-
+    # 下载游戏头图
+    header_image_bytes = None
     if image_url:
-        await steam_price_query.finish(MessageSegment.image(image_url) + MessageSegment.text(full_message))
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                header_image_bytes = await fetch_image_bytes(image_url, client)
+        except Exception as e:
+            logger.warning(f"下载游戏头图失败: {e}")
 
-    await steam_price_query.finish(full_message)
+    # 渲染价格信息图片
+    try:
+        img = draw_game_price_info(
+            game_name=game_name_cn,
+            english_name=game_name_en,
+            appid=appid,
+            header_image=header_image_bytes,
+            prices=price_info.get("prices", []),
+            historical_low=price_info.get("historical_low"),
+            historical_low_currency=price_info.get("historical_low_currency", "CNY"),
+            historical_low_date=price_info.get("historical_low_date")
+        )
+        await steam_price_query.finish(MessageSegment.image(pil_image_to_base64(img)))
+    except Exception as e:
+        logger.error(f"渲染价格图片失败: {e}", exc_info=True)
+        # 降级到文本模式
+        message_lines = [f"🎮 {game_name_cn}", f"🔗 https://store.steampowered.com/app/{appid}"]
+        if game_name_en and game_name_en != game_name_cn:
+            message_lines.append(f"英文名: {game_name_en}")
+        message_lines.append("\n当前价格：")
+        for price in price_info.get("prices", []):
+            line = f"- {price['region'].upper()}: "
+            line += _format_price_with_currency(price["price"], price["currency"])
+            if price.get("discount", 0):
+                line += f" (-{price['discount']}%)"
+            if price.get("converted_price") is not None and price["currency"].upper() != "CNY":
+                line += f" ≈ ¥{price['converted_price']:.2f}"
+            if price.get("original_price") and price.get("discount", 0):
+                line += f" (原价 {_format_price_with_currency(price['original_price'], price['currency'])})"
+            message_lines.append(line)
+
+        historical_low = price_info.get("historical_low")
+        if historical_low is not None:
+            low_currency = price_info.get("historical_low_currency", "CNY").upper()
+            low_date = price_info.get("historical_low_date")
+            low_text = _format_price_with_currency(float(historical_low), low_currency)
+            if low_currency != "CNY" and low_currency in STEAM_PRICE_EXCHANGE_RATES:
+                low_text += f" (约¥{float(historical_low) * float(STEAM_PRICE_EXCHANGE_RATES[low_currency]):.2f})"
+            if low_date:
+                low_text += f"，记录时间 {low_date}"
+            message_lines.append(f"\n📉 史低价：{low_text}")
+        await steam_price_query.finish("\n".join(message_lines))
 
 
 # Steam史低游戏查询
