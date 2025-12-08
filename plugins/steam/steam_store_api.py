@@ -284,14 +284,7 @@ class SteamStoreAPI:
                 cn_items = await store_search(keyword, "cn", "schinese")
                 en_items = await store_search(keyword, "us", "english")
 
-                translated_keyword: Optional[str] = None
-
                 fallback_item: Optional[Dict] = None
-                if not cn_items and not en_items:
-                    translated_keyword = await self._translate_to_english(keyword)
-                    if translated_keyword:
-                        en_items = await store_search(translated_keyword, "us", "english")
-
                 if not cn_items and not en_items:
                     # 作为兜底，尝试社区搜索接口，改善外文原名->中文搜索的命中率
                     try:
@@ -326,8 +319,6 @@ class SteamStoreAPI:
                 try:
                     if en_items:
                         english_name = en_items[0].get("name", english_name)
-                    elif translated_keyword:
-                        english_name = translated_keyword
                 except Exception:
                     pass
 

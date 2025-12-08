@@ -74,8 +74,6 @@ async def handle_help(bot: Bot, event: MessageEvent):
         else:
             await bot.send_private_forward_msg(user_id=event.user_id, messages=messages)
         await help_cmd.finish()
-    except FinishedException:
-        raise
     except Exception:
         # 兼容性兜底：若转发失败则发送纯文本帮助
         help_text = """
