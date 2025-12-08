@@ -6,11 +6,46 @@ import asyncio
 import httpx
 import re
 from html import unescape
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime, timedelta
 from pathlib import Path
 import json
 from nonebot.log import logger
+
+
+def _parse_low_timestamp(timestamp: Any) -> Optional[str]:
+    """将史低时间戳或日期字符串解析为 YYYY-MM-DD"""
+
+    if not timestamp:
+        return None
+
+    try:
+        parsed_ts: Optional[int] = None
+
+        if isinstance(timestamp, (int, float)):
+            parsed_ts = int(timestamp)
+        elif isinstance(timestamp, str):
+            cleaned = timestamp.strip()
+            if cleaned.isdigit():
+                parsed_ts = int(cleaned)
+            else:
+                try:
+                    parsed_dt = datetime.fromisoformat(cleaned.replace("Z", "+00:00"))
+                    return parsed_dt.strftime("%Y-%m-%d")
+                except Exception:
+                    date_match = re.search(r"\d{4}-\d{2}-\d{2}", cleaned)
+                    if date_match:
+                        return date_match.group(0)
+
+        if parsed_ts is not None:
+            # ITAD 返回的时间戳可能是毫秒，需要兼容处理
+            if parsed_ts > 10 ** 11:
+                parsed_ts = parsed_ts / 1000
+            return datetime.fromtimestamp(parsed_ts).strftime("%Y-%m-%d")
+    except Exception:
+        logger.debug("解析史低时间戳失败", exc_info=True)
+
+    return None
 
 
 class SteamStoreAPI:
@@ -543,34 +578,15 @@ class SteamStoreAPI:
                 if low_info:
                     historical_low_price = low_info.get("price")
                     historical_low_currency = low_info.get("currency", "CNY").upper()
-                    timestamp = low_info.get("timestamp")
+                    timestamp = (
+                        low_info.get("timestamp")
+                        or low_info.get("recorded")
+                        or low_info.get("date")
+                    )
 
-                    if timestamp:
-                        try:
-                            parsed_ts = None
-                            if isinstance(timestamp, str):
-                                if timestamp.isdigit():
-                                    parsed_ts = int(timestamp)
-                                else:
-                                    # 兼容 ISO 日期字符串，或者直接返回日期部分
-                                    try:
-                                        parsed_dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-                                        parsed_ts = int(parsed_dt.timestamp())
-                                    except Exception:
-                                        date_match = re.search(r"\d{4}-\d{2}-\d{2}", timestamp)
-                                        if date_match:
-                                            historical_low_date = date_match.group(0)
-                            elif isinstance(timestamp, (int, float)):
-                                parsed_ts = int(timestamp)
-
-                            if parsed_ts is not None:
-                                # ITAD 时间戳有时为毫秒，需要兼容转换
-                                if parsed_ts > 10 ** 11:  # 约 5138 年的秒级时间戳，上溢则视为毫秒
-                                    parsed_ts = parsed_ts / 1000
-                                historical_low_date = datetime.fromtimestamp(parsed_ts).strftime("%Y-%m-%d")
-                        except Exception:
-                            logger.debug("解析史低时间戳失败", exc_info=True)
-                            historical_low_date = None
+                    parsed_date = _parse_low_timestamp(timestamp)
+                    if parsed_date:
+                        historical_low_date = parsed_date
 
         if not prices:
             return None
