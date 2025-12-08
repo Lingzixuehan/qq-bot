@@ -1311,7 +1311,12 @@ def draw_game_price_info(
     info_height = 150    # 基本信息区域
     price_row_height = 50
     price_section_height = len(prices) * price_row_height + 80
-    low_section_height = 80 if historical_low else 0
+    # 史低区域：标题(40) + 价格(35) + 日期(可选，35+30) + 提示(可选，35) + 边距(20)
+    low_section_height = 0
+    if historical_low:
+        low_section_height = 115  # 基础高度
+        if historical_low_date:
+            low_section_height += 65  # 日期行
     total_height = padding * 2 + header_height + info_height + price_section_height + low_section_height
 
     # 创建画布
@@ -1444,12 +1449,38 @@ def draw_game_price_info(
         draw.text((padding, y_offset), "📉 历史最低价", font=low_title_font, fill=(255, 255, 255, 255))
         y_offset += 40
 
+        # 史低价格
         low_symbol = {"CNY": "¥", "USD": "$", "EUR": "€"}.get(historical_low_currency, historical_low_currency + " ")
-        low_text = f"{low_symbol}{historical_low:.2f}"
-        if historical_low_date:
-            low_text += f"  ({historical_low_date})"
+        low_price_text = f"{low_symbol}{historical_low:.2f}"
+        draw.text((padding + 20, y_offset), low_price_text, font=price_font, fill=(255, 180, 100, 255))
 
-        draw.text((padding + 20, y_offset), low_text, font=price_font, fill=(255, 180, 100, 255))
+        # 史低日期（如果有）
+        if historical_low_date:
+            y_offset += 35
+            date_font = get_font(FONT_SIZE_SMALL, "regular")
+            date_text = f"上次史低时间：{historical_low_date}"
+            draw.text((padding + 20, y_offset), date_text, font=date_font, fill=(200, 200, 210, 255))
+            y_offset += 30
+
+        # 对比当前价格（如果当前就是史低）
+        if prices:
+            cn_price = next((p for p in prices if p.get("region", "").lower() == "cn"), None)
+            if cn_price and cn_price.get("price"):
+                current = cn_price.get("price")
+                # 转换史低价格到人民币（如果需要）
+                low_in_cny = historical_low
+                if historical_low_currency != "CNY":
+                    # 简单估算，如果是USD约*7，EUR约*7.5
+                    rate_map = {"USD": 7.0, "EUR": 7.5, "JPY": 0.05}
+                    low_in_cny = historical_low * rate_map.get(historical_low_currency, 1.0)
+
+                if current > 0 and low_in_cny > 0:
+                    diff_percent = abs(current - low_in_cny) / low_in_cny * 100
+                    if diff_percent <= 5:
+                        # 当前价格接近史低
+                        y_offset += 5
+                        tip_font = get_font(FONT_SIZE_SMALL, "bold")
+                        draw.text((padding + 20, y_offset), "💎 当前已达史低价格！", font=tip_font, fill=(144, 238, 144, 255))
 
     return img
 
