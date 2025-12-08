@@ -1120,6 +1120,9 @@ async def handle_steam_price(args: Message = CommandArg()):
             historical_low_date=price_info.get("historical_low_date")
         )
         await steam_price_query.finish(MessageSegment.image(pil_image_to_base64(img)))
+    except FinishedException:
+        # finish异常直接向上传播
+        raise
     except Exception as e:
         logger.error(f"渲染价格图片失败: {e}", exc_info=True)
         # 降级到文本模式
