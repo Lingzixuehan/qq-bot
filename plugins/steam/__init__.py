@@ -7,19 +7,35 @@ from io import BytesIO
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from nonebot import on_command, get_driver, require
+from nonebot import on_command, get_driver
 from nonebot.adapters.onebot.v11 import Bot, MessageEvent, GroupMessageEvent, Message, MessageSegment
 from nonebot.params import CommandArg
 from nonebot.log import logger
 from nonebot.plugin import PluginMetadata
 
-# 导入调度器
-require("nonebot_plugin_apscheduler")
-from nonebot_plugin_apscheduler import scheduler
+# 尝试导入可选依赖
+scheduler = None
+store = None
+HAS_APSCHEDULER = False
+HAS_LOCALSTORE = False
 
-# 导入本地存储
-require("nonebot_plugin_localstore")
-import nonebot_plugin_localstore as store
+try:
+    from nonebot import require
+    require("nonebot_plugin_apscheduler")
+    from nonebot_plugin_apscheduler import scheduler
+    HAS_APSCHEDULER = True
+    logger.info("nonebot_plugin_apscheduler 已加载，自动播报功能已启用")
+except Exception as e:
+    logger.warning(f"nonebot_plugin_apscheduler 未安装，自动播报功能已禁用: {e}")
+
+try:
+    from nonebot import require
+    require("nonebot_plugin_localstore")
+    import nonebot_plugin_localstore as store
+    HAS_LOCALSTORE = True
+    logger.info("nonebot_plugin_localstore 已加载")
+except Exception as e:
+    logger.warning(f"nonebot_plugin_localstore 未安装，将使用本地目录存储: {e}")
 
 # 导入公共模块
 import sys
@@ -66,8 +82,15 @@ else:
     logger.warning("Steam API Key未配置，Steam功能将无法使用")
 
 # 获取数据目录
-plugin_data_dir = store.get_plugin_data_dir()
-plugin_cache_dir = store.get_plugin_cache_dir()
+if HAS_LOCALSTORE and store:
+    plugin_data_dir = store.get_plugin_data_dir()
+    plugin_cache_dir = store.get_plugin_cache_dir()
+else:
+    # 使用本地目录
+    plugin_data_dir = Path(__file__).parent / "data"
+    plugin_cache_dir = Path(__file__).parent / "cache"
+    plugin_data_dir.mkdir(parents=True, exist_ok=True)
+    plugin_cache_dir.mkdir(parents=True, exist_ok=True)
 
 # 初始化数据管理类
 bind_data = BindData(plugin_data_dir / "bind_data.json")
@@ -539,6 +562,13 @@ async def handle_enable_broadcast(event: MessageEvent):
     if not isinstance(event, GroupMessageEvent):
         await steam_enable_broadcast.finish("❌ 该命令只能在群聊中使用")
 
+    if not HAS_APSCHEDULER:
+        await steam_enable_broadcast.finish(
+            "❌ 自动播报功能未启用\n\n"
+            "原因：未安装 nonebot-plugin-apscheduler\n"
+            "安装方法：pip install nonebot-plugin-apscheduler"
+        )
+
     parent_id = str(event.group_id)
 
     # 检查是否已禁用
@@ -559,6 +589,12 @@ steam_disable_broadcast = on_command("steam禁用播报", priority=5, block=True
 @steam_disable_broadcast.handle()
 async def handle_disable_broadcast(event: MessageEvent):
     """在当前群禁用游戏状态播报"""
+    if not HAS_APSCHEDULER:
+        await steam_disable_broadcast.finish(
+            "❌ 自动播报功能未启用\n\n"
+            "原因：未安装 nonebot-plugin-apscheduler\n"
+            "（该功能当前不可用）"
+        )
     if not isinstance(event, GroupMessageEvent):
         await steam_disable_broadcast.finish("❌ 该命令只能在群聊中使用")
 
@@ -612,7 +648,6 @@ async def handle_steam_help():
 
 # ==================== 自动播报系统 ====================
 
-@scheduler.scheduled_job("interval", seconds=STEAM_BROADCAST_INTERVAL, id="steam_status_check")
 async def check_steam_status():
     """定期检查Steam状态变化并播报"""
     if not steam_api or not STEAM_BROADCAST_ENABLED:
@@ -657,6 +692,11 @@ async def check_steam_status():
 
     except Exception as e:
         logger.error(f"检查Steam状态失败: {e}")
+
+# 只在apscheduler可用时注册定时任务
+if HAS_APSCHEDULER and scheduler:
+    scheduler.scheduled_job("interval", seconds=STEAM_BROADCAST_INTERVAL, id="steam_status_check")(check_steam_status)
+    logger.info(f"Steam状态检查任务已注册，间隔: {STEAM_BROADCAST_INTERVAL}秒")
 
 
 async def broadcast_start_gaming(player: Dict):
