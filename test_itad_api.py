@@ -47,9 +47,8 @@ async def test_itad_api():
         print("\n   Step 1: 查询游戏ID...")
         lookup_url = f"{ITAD_BASE_URL}/games/lookup/v1"
         lookup_params = {
-            "key": ITAD_API_KEY,
-            "shop": "steam",
-            "game_id": f"app/{test_appid}"
+            "appid": test_appid,  # 使用appid参数，直接传递数字
+            "key": ITAD_API_KEY
         }
 
         try:

@@ -218,14 +218,13 @@ class SteamStoreAPI:
             # 首先查询游戏ID
             lookup_url = f"{self.itad_base_url}/games/lookup/v1"
             lookup_params = {
-                "key": self.itad_api_key,
-                "shop": "steam",
-                "game_id": f"app/{appid}"
+                "appid": appid,  # 使用appid参数，直接传递数字
+                "key": self.itad_api_key
             }
 
             response = await session.get(lookup_url, params=lookup_params)
             if response.status_code != 200:
-                logger.debug(f"ITAD lookup失败: {response.status_code}")
+                logger.debug(f"ITAD lookup失败: {response.status_code}, 响应: {response.text}")
                 return None
 
             lookup_data = response.json()
