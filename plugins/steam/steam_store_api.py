@@ -196,59 +196,107 @@ class SteamStoreAPI:
     async def get_historical_low(
         self,
         appid: int,
+        country: str = "CN",
         client: Optional[httpx.AsyncClient] = None
     ) -> Optional[Dict]:
         """
-        获取游戏史低价格（使用ITAD API）
+        获取游戏史低价格（使用ITAD API v3）
 
         Args:
             appid: Steam游戏ID
+            country: 国家代码，默认CN
 
         Returns:
-            史低价格信息
+            史低价格信息，包含price, currency, timestamp等字段
         """
         if not self.itad_api_key:
-            logger.warning("ITAD API密钥未配置，无法获取史低价格")
+            logger.debug("ITAD API密钥未配置，无法获取史低价格")
             return None
 
         session = client or httpx.AsyncClient(timeout=30)
         try:
-            # 首先搜索游戏ID
-            url = f"{self.itad_base_url}/games/lookup/v1"
-            params = {
+            # 首先查询游戏ID
+            lookup_url = f"{self.itad_base_url}/games/lookup/v1"
+            lookup_params = {
                 "key": self.itad_api_key,
                 "shop": "steam",
                 "game_id": f"app/{appid}"
             }
 
-            response = await session.get(url, params=params)
+            response = await session.get(lookup_url, params=lookup_params)
             if response.status_code != 200:
+                logger.debug(f"ITAD lookup失败: {response.status_code}")
                 return None
 
-            data = response.json()
-            if not data or "game" not in data:
+            lookup_data = response.json()
+            if not lookup_data or "game" not in lookup_data:
+                logger.debug(f"ITAD lookup未返回游戏信息: appid={appid}")
                 return None
 
-            game_id = data["game"]["id"]
+            gid = lookup_data["game"]["id"]
+            logger.debug(f"ITAD game ID: {gid}")
 
-            # 获取历史最低价
-            url = f"{self.itad_base_url}/games/historylow/v1"
-            params = {
+            # 使用v3 API获取价格和史低信息
+            prices_url = f"{self.itad_base_url}/games/prices/v3"
+            prices_params = {
                 "key": self.itad_api_key,
-                "id": game_id,
-                "country": "CN",
-                "shops": "steam"
+                "country": country,
+                "shops": 61  # 61 = Steam shop ID
             }
 
-            response = await session.get(url, params=params)
+            response = await session.post(prices_url, params=prices_params, json=[gid])
             if response.status_code != 200:
+                logger.debug(f"ITAD prices API失败: {response.status_code}")
                 return None
 
-            history_data = response.json()
-            return history_data.get("data", {})
+            prices_data = response.json()
+            if not prices_data or len(prices_data) == 0:
+                logger.debug(f"ITAD prices API未返回数据: gid={gid}")
+                return None
+
+            game_data = prices_data[0]
+
+            # 提取史低信息（优先级：3个月 > 1年 > 全部时间）
+            history_low = game_data.get("historyLow", {})
+            lowest_price = None
+            lowest_currency = "CNY"
+            lowest_timestamp = None
+
+            for period in ["m3", "y1", "all"]:
+                if period in history_low and history_low[period]:
+                    low_data = history_low[period]
+                    if "amount" in low_data:
+                        lowest_price = low_data["amount"]
+                        lowest_currency = low_data.get("currency", "CNY").upper()
+                        lowest_timestamp = low_data.get("timestamp")
+                        break
+
+            if lowest_price is None:
+                logger.debug(f"未找到史低价格: gid={gid}")
+                return None
+
+            # 提取当前Steam价格
+            current_price = None
+            current_currency = lowest_currency
+            deals = game_data.get("deals", [])
+            for deal in deals:
+                shop = deal.get("shop", {})
+                if shop.get("id") == 61:  # Steam shop
+                    price_data = deal.get("price", {})
+                    current_price = price_data.get("amount")
+                    current_currency = price_data.get("currency", current_currency).upper()
+                    break
+
+            return {
+                "price": lowest_price,
+                "currency": lowest_currency,
+                "timestamp": lowest_timestamp,
+                "current_price": current_price,
+                "current_currency": current_currency,
+            }
 
         except Exception as e:
-            logger.error(f"获取史低价格失败 (appid={appid}): {e}")
+            logger.error(f"获取史低价格失败 (appid={appid}): {e}", exc_info=True)
             return None
         finally:
             if client is None:
@@ -436,37 +484,23 @@ class SteamStoreAPI:
 
         if self.itad_api_key:
             async with httpx.AsyncClient(timeout=30) as itad_client:
-                low_info = await self.get_historical_low(appid, client=itad_client)
+                low_info = await self.get_historical_low(appid, country=unique_regions[0].upper(), client=itad_client)
                 if low_info:
-                    raw_price = low_info.get("price")
-                    if isinstance(raw_price, dict):
-                        historical_low_currency = raw_price.get(
-                            "currency", historical_low_currency
-                        ).upper()
-                        historical_low_price = raw_price.get("amount") or raw_price.get(
-                            "value"
-                        )
-                    else:
-                        historical_low_price = raw_price
-                        historical_low_currency = (
-                            low_info.get("currency") or historical_low_currency
-                        ).upper()
+                    historical_low_price = low_info.get("price")
+                    historical_low_currency = low_info.get("currency", "CNY").upper()
+                    timestamp = low_info.get("timestamp")
 
-                    timestamp = (
-                        low_info.get("timestamp")
-                        or low_info.get("added")
-                        or low_info.get("since")
-                        or low_info.get("recorded")
-                    )
-                    try:
-                        if isinstance(timestamp, str) and timestamp.isdigit():
-                            timestamp = int(timestamp)
-                        if isinstance(timestamp, (int, float)):
-                            historical_low_date = datetime.fromtimestamp(int(timestamp)).strftime(
-                                "%Y-%m-%d"
-                            )
-                    except Exception:
-                        historical_low_date = None
+                    if timestamp:
+                        try:
+                            if isinstance(timestamp, str) and timestamp.isdigit():
+                                timestamp = int(timestamp)
+                            if isinstance(timestamp, (int, float)):
+                                historical_low_date = datetime.fromtimestamp(int(timestamp)).strftime(
+                                    "%Y-%m-%d"
+                                )
+                        except Exception:
+                            logger.debug("解析史低时间戳失败", exc_info=True)
+                            historical_low_date = None
 
         if not prices:
             return None
@@ -550,7 +584,7 @@ class SteamStoreAPI:
 
             if self.itad_api_key and itad_client:
                 async with semaphore:
-                    historical_low = await self.get_historical_low(appid, client=itad_client)
+                    historical_low = await self.get_historical_low(appid, country="CN", client=itad_client)
                 if historical_low:
                     low_price = historical_low.get("price", 0)
                     if current_price > 0 and low_price > 0:
