@@ -203,15 +203,13 @@ class SteamStoreAPI:
         Returns:
             史低游戏列表，每个包含 {appid, name, current_price, historical_low, discount, image}
         """
-        results = []
-
         logger.info(f"开始查找史低游戏，limit={limit}, tags={tags}")
 
-        # 搜索当前大幅折扣的游戏
+        # 搜索当前打折的游戏（降低最小折扣要求到10%）
         tag_list = [tags] if tags else None
         games_on_sale = await self.search_games_on_sale(
             limit=limit * 3,  # 获取更多，因为要筛选
-            min_discount=50,
+            min_discount=10,  # 降低到10%，获取所有有折扣的游戏
             tags=tag_list
         )
 
@@ -221,7 +219,10 @@ class SteamStoreAPI:
             logger.warning("未找到打折游戏")
             return []
 
+        # 收集所有游戏信息
+        all_games = []
         processed_count = 0
+
         for game in games_on_sale:
             appid = game.get("id")
             if not appid:
@@ -268,27 +269,36 @@ class SteamStoreAPI:
                         is_historical_low = diff_percent <= 5
                         logger.debug(f"史低对比: 当前={current_price}, 史低={low_price}, 差异={diff_percent:.1f}%")
 
-            # 条件：史低价或折扣≥70%（降低门槛以便更容易找到游戏）
-            if is_historical_low or discount_percent >= 70:
-                logger.info(f"找到符合条件的游戏: {details.get('name')} (折扣{discount_percent}%, 史低={is_historical_low})")
-                results.append({
-                    "appid": appid,
-                    "name": details.get("name", "Unknown"),
-                    "current_price": current_price,
-                    "original_price": price_overview.get("initial", 0) / 100,
-                    "discount_percent": discount_percent,
-                    "historical_low": historical_low.get("price", 0) if historical_low else None,
-                    "image": details.get("header_image", ""),
-                    "short_description": details.get("short_description", ""),
-                    "tags": [genre["description"] for genre in details.get("genres", [])],
-                    "is_historical_low": is_historical_low
-                })
+            # 收集所有游戏信息（不再过滤）
+            all_games.append({
+                "appid": appid,
+                "name": details.get("name", "Unknown"),
+                "current_price": current_price,
+                "original_price": price_overview.get("initial", 0) / 100,
+                "discount_percent": discount_percent,
+                "historical_low": historical_low.get("price", 0) if historical_low else None,
+                "image": details.get("header_image", ""),
+                "short_description": details.get("short_description", ""),
+                "tags": [genre["description"] for genre in details.get("genres", [])],
+                "is_historical_low": is_historical_low,
+                # 用于排序的优先级分数
+                "priority": (100 if is_historical_low else 0) + discount_percent
+            })
 
-            if len(results) >= limit:
-                logger.info(f"已找到足够数量的游戏: {len(results)}")
-                break
+        if not all_games:
+            logger.warning("处理后无可用游戏")
+            return []
+
+        # 按优先级排序：史低优先，然后按折扣从高到低
+        all_games.sort(key=lambda x: x["priority"], reverse=True)
+
+        # 取前N个
+        results = all_games[:limit]
 
         logger.info(f"史低游戏查找完成，共找到 {len(results)} 个")
+        for game in results:
+            logger.info(f"  - {game['name']}: 折扣{game['discount_percent']}%, 史低={game['is_historical_low']}")
+
         return results
 
     async def get_top_sellers(self, limit: int = 10) -> List[Dict]:
