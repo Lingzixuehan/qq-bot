@@ -1297,13 +1297,12 @@ steam_help = on_command("steam帮助", aliases={"steamhelp"}, priority=5, block=
 
 
 @steam_help.handle()
-async def handle_steam_help():
-    """显示Steam插件帮助"""
+async def handle_steam_help(bot: Bot, event: MessageEvent):
+    """显示Steam插件帮助（群聊使用聊天记录格式）"""
     help_text = """🎮 Steam插件帮助
 
 【账号管理】
-/绑定steam <ID> - 绑定Steam账号
-  支持Steam ID (76561198...)或个性化URL
+/绑定steam <ID> - 绑定Steam账号（支持Steam ID或个性化URL）
 /解绑steam - 解绑Steam账号
 /steam昵称 <昵称> - 设置显示昵称
 
@@ -1336,7 +1335,66 @@ async def handle_steam_help():
 3. 播报功能仅在群聊中生效
 4. 史低功能需要ITAD API密钥支持"""
 
-    await steam_help.finish(help_text)
+    # 私聊直接发送文本
+    if not isinstance(event, GroupMessageEvent):
+        await steam_help.finish(help_text)
+
+    # 群聊使用合并转发格式（聊天记录）
+    bot_id = event.self_id
+    bot_info = await bot.get_stranger_info(user_id=bot_id)
+    bot_name = bot_info.get("nickname", "SteamBot")
+
+    sections = [
+        ("🎮 Steam插件帮助", "欢迎使用 Steam 功能！以下是所有可用命令："),
+        (
+            "【账号管理】",
+            "/绑定steam <ID> - 绑定Steam账号（支持Steam ID或个性化URL)\n"
+            "/解绑steam - 解绑Steam账号\n"
+            "/steam昵称 <昵称> - 设置显示昵称",
+        ),
+        (
+            "【查询功能】",
+            "/steam资料 [@用户] - 查看Steam资料\n"
+            "/steam游戏 [@用户] - 查看最近游戏\n"
+            "/steam游戏库 [@用户] - 查看完整游戏库\n"
+            "/steam视奸 - 查看所有好友在线状态",
+        ),
+        (
+            "【商店功能】",
+            "/steam价格 <游戏名> [| 对比区列表] - 查询国区价格、各区折扣&史低，自动翻译英文名\n"
+            "  示例：/steam价格 艾尔登法环 | us jp\n"
+            "/steam史低 - 查看热门史低游戏\n"
+            "/steam史低 <类型> - 查看特定类型的史低游戏\n"
+            "  示例：/steam史低 类银河恶魔城\n"
+            "/steam榜单 - 查看Steam全球热销榜\n"
+            "/steam促销 - 查看当前促销活动信息",
+        ),
+        (
+            "【播报功能】",
+            "/steam启用播报 - 启用游戏状态播报\n"
+            "/steam禁用播报 - 禁用游戏状态播报\n\n"
+            "启用播报后：\n- 好友开始玩游戏时会自动通知\n- Steam大型促销活动时会自动推送",
+        ),
+        (
+            "💡 提示",
+            "1. 绑定前需确保Steam资料为公开\n"
+            "2. 游戏库需设置为公开才能查看\n"
+            "3. 播报功能仅在群聊中生效\n"
+            "4. 史低功能需要ITAD API密钥支持",
+        ),
+    ]
+
+    nodes = [
+        MessageSegment.node_custom(
+            user_id=bot_id,
+            nickname=bot_name,
+            content=f"{title}\n{content}",
+        )
+        for title, content in sections
+    ]
+
+    await bot.send_group_forward_msg(group_id=event.group_id, messages=nodes)
+    await steam_help.finish()
 
 
 # ==================== 自动播报系统 ====================
