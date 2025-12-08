@@ -87,11 +87,21 @@ class SteamStoreAPI:
 
                 # 过滤折扣百分比
                 filtered_items = []
+                for i, item in enumerate(items[:5]):  # 先查看前5个游戏的数据结构
+                    logger.debug(f"游戏 {i+1} 数据结构: {item}")
+
                 for item in items:
                     discount = item.get("discount_percent", 0)
+                    # Steam API可能使用不同的字段名
+                    if discount == 0:
+                        # 尝试其他可能的字段名
+                        discount = item.get("discount", 0)
+
+                    logger.debug(f"游戏 {item.get('name', 'Unknown')}: discount_percent={item.get('discount_percent')}, discount={item.get('discount')}, 最终折扣={discount}%")
+
                     if discount >= min_discount:
                         filtered_items.append(item)
-                        logger.debug(f"找到符合折扣要求的游戏: {item.get('name')} ({discount}%)")
+                        logger.info(f"✓ 找到符合折扣要求的游戏: {item.get('name')} ({discount}%)")
 
                 logger.info(f"过滤后剩余 {len(filtered_items)} 个游戏（折扣≥{min_discount}%）")
                 return filtered_items[:limit]
