@@ -228,37 +228,94 @@ class SteamStoreAPI:
 
     async def search_game(self, keyword: str) -> Optional[Dict]:
         """
-        搜索游戏以获取官方英文名和AppID
+        搜索游戏并返回官方英文名（支持中文输入自动翻译）
 
         Args:
-            keyword: 游戏关键字
+            keyword: 游戏关键字（支持中文/英文）
 
         Returns:
-            包含 appid、name、image 的字典
+            包含 appid、name(中文名)、english_name(官方英文名)、image 的字典
         """
         if not keyword:
             return None
 
         try:
             async with httpx.AsyncClient(timeout=20) as client:
-                params = {"term": keyword, "cc": "cn", "l": "english"}
-                response = await client.get(
-                    "https://store.steampowered.com/api/storesearch/", params=params
-                )
-                if response.status_code != 200:
-                    logger.error(f"搜索游戏失败: {response.status_code}")
+                async def store_search(term: str, country: str, language: str) -> List[Dict]:
+                    resp = await client.get(
+                        "https://store.steampowered.com/api/storesearch/",
+                        params={"term": term, "cc": country, "l": language},
+                    )
+                    if resp.status_code != 200:
+                        logger.warning(
+                            "storesearch 请求失败: status=%s, country=%s", resp.status_code, country
+                        )
+                        return []
+                    return resp.json().get("items", [])
+
+                cn_items = await store_search(keyword, "cn", "schinese")
+                en_items = await store_search(keyword, "us", "english")
+
+                fallback_item: Optional[Dict] = None
+                if not cn_items and not en_items:
+                    # 作为兜底，尝试社区搜索接口，改善外文原名->中文搜索的命中率
+                    try:
+                        resp = await client.get(
+                            f"https://steamcommunity.com/actions/SearchApps/{keyword}", follow_redirects=True
+                        )
+                        if resp.status_code == 200:
+                            sugg_items = resp.json()
+                            if sugg_items:
+                                fallback_item = sugg_items[0]
+                    except Exception:
+                        logger.debug("SearchApps 兜底搜索失败", exc_info=True)
+
+                # 优先中文结果，其次英文结果，最后兜底
+                item = cn_items[0] if cn_items else en_items[0] if en_items else None
+                if not item and fallback_item:
+                    item = {
+                        "id": fallback_item.get("appid"),
+                        "name": fallback_item.get("name"),
+                        "tiny_image": fallback_item.get("icon"),
+                    }
+
+                if not item:
                     return None
 
-                data = response.json()
-                items = data.get("items", [])
-                if not items:
-                    return None
+                appid = item.get("id")
+                localized_name = item.get("name")
+                image = item.get("tiny_image")
 
-                item = items[0]
+                english_name = localized_name
+                # 再获取官方英文名，兼容中文输入
+                try:
+                    if en_items:
+                        english_name = en_items[0].get("name", english_name)
+                except Exception:
+                    pass
+
+                # 如果有appid，优先用app详情获取官方英文名和本地化名称，确保准确
+                if appid:
+                    try:
+                        en_details = await self.get_game_details(
+                            appid, country="us", language="english", client=client
+                        )
+                        if en_details:
+                            english_name = en_details.get("name", english_name)
+                        cn_details = await self.get_game_details(
+                            appid, country="cn", language="schinese", client=client
+                        )
+                        if cn_details:
+                            localized_name = cn_details.get("name", localized_name)
+                            image = cn_details.get("header_image", image)
+                    except Exception:
+                        logger.debug("获取游戏详情失败，使用搜索结果", exc_info=True)
+
                 return {
-                    "appid": item.get("id"),
-                    "name": item.get("name"),
-                    "image": item.get("tiny_image"),
+                    "appid": appid,
+                    "name": localized_name,
+                    "english_name": english_name,
+                    "image": image,
                 }
         except Exception as e:
             logger.error(f"搜索Steam游戏失败: {e}", exc_info=True)
@@ -557,16 +614,34 @@ class SteamStoreAPI:
                 data = response.json()
                 items = data.get("items", [])
 
-                # 格式化结果
-                results = []
-                for item in items:
-                    results.append({
-                        "appid": item.get("id"),
+                # 同步补充标签与高清头图
+                async def enrich_item(item: Dict) -> Optional[Dict]:
+                    appid = item.get("id")
+                    if not appid:
+                        return None
+                    try:
+                        details = await self.get_game_details(appid, client=client)
+                    except Exception:
+                        logger.debug("获取热销榜详情失败", exc_info=True)
+                        details = None
+
+                    tags = []
+                    header_image = item.get("tiny_image", "")
+                    if details:
+                        tags = [genre.get("description", "") for genre in details.get("genres", []) if genre.get("description")]
+                        header_image = details.get("header_image", header_image)
+                    return {
+                        "appid": appid,
                         "name": item.get("name"),
                         "price": item.get("price", {}).get("final", 0) / 100 if item.get("price") else 0,
                         "discount": item.get("discount_percent", 0),
-                        "image": item.get("tiny_image", "")
-                    })
+                        "image": header_image,
+                        "tags": tags,
+                    }
+
+                tasks = [enrich_item(item) for item in items]
+                results_raw = await asyncio.gather(*tasks)
+                results = [r for r in results_raw if r]
 
                 return results
 

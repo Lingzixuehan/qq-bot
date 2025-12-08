@@ -237,6 +237,49 @@ async def handle_hello(event: GroupMessageEvent):
 - 确保 `data/` 目录存在且有写入权限
 - 首次运行会自动创建数据库
 
+### 4. 提交 PR 时提示 “This branch has conflicts that must be resolved”
+
+当远程分支存在新的提交而当前分支未同步时，GitHub 会提示存在合并冲突。解决方法如下：
+
+1. 拉取最新主分支代码：
+
+   ```bash
+   git fetch origin
+   git checkout main
+   git pull
+   ```
+
+2. 切回工作分支并与主分支对齐（任选其一）：
+
+   - 方式 A：合并主分支
+
+     ```bash
+     git checkout work
+     git merge origin/main
+     ```
+
+   - 方式 B：在主分支上变基
+
+     ```bash
+     git checkout work
+     git rebase origin/main
+     ```
+
+3. 按提示手动解决冲突：
+
+   - 打开包含 `<<<<<<<`、`=======`、`>>>>>>>` 标记的文件
+   - 保留需要的最终内容，删除冲突标记
+
+4. 解决后提交并推送：
+
+   ```bash
+   git add .
+   git commit -m "fix: resolve merge conflicts"
+   git push -f   # 如果使用了 rebase 需要强推
+   ```
+
+完成以上步骤后重新打开或刷新 PR，冲突提示会消失。
+
 ## 📝 更新日志
 
 ### v1.2.0 (2024-12-04)

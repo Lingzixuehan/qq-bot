@@ -8,6 +8,7 @@ import re
 from io import BytesIO
 from pathlib import Path
 from typing import Dict, List, Optional
+import httpx
 
 from nonebot import on_command, get_driver
 from nonebot.adapters.onebot.v11 import Bot, MessageEvent, GroupMessageEvent, Message, MessageSegment
@@ -48,7 +49,7 @@ from common.steam_api import SteamAPI, format_playtime, get_player_state_text
 
 # 导入新模块
 from .data_source import BindData, SteamInfoData, ParentData, DisableParentData
-from .draw import draw_friends_status, draw_start_gaming
+from .draw import draw_friends_status, draw_start_gaming, draw_game_list_with_tags
 from .utils import fetch_avatar, convert_player_name_to_nickname
 from .models import Player, ProcessedPlayer
 from .steam_store_api import SteamStoreAPI
@@ -146,6 +147,19 @@ def pil_image_to_base64(image) -> str:
     buffer = BytesIO()
     image.save(buffer, format="PNG")
     return f"base64://{base64.b64encode(buffer.getvalue()).decode()}"
+
+
+async def fetch_image_bytes(url: str, client: httpx.AsyncClient) -> Optional[bytes]:
+    """下载图片数据，失败返回None"""
+    if not url:
+        return None
+    try:
+        resp = await client.get(url)
+        if resp.status_code == 200:
+            return resp.content
+    except Exception:
+        logger.debug(f"下载图片失败: {url}", exc_info=True)
+    return None
 
 
 async def generate_recent_games_image(player_info: Dict, games: List[Dict], qq_user: str = None) -> str:
@@ -1069,7 +1083,7 @@ async def handle_steam_price(args: Message = CommandArg()):
         await steam_price_query.finish("❌ 未找到相关游戏，请检查名称后重试")
 
     appid = search_result.get("appid")
-    english_name = search_result.get("name")
+    english_name = search_result.get("english_name") or search_result.get("name")
 
     # 获取价格信息
     price_info = await steam_store_api.get_game_price_info(
@@ -1080,12 +1094,12 @@ async def handle_steam_price(args: Message = CommandArg()):
         await steam_price_query.finish("❌ 未能获取该游戏的价格信息")
 
     title = price_info.get("name") or english_name or game_name
-    en_title = price_info.get("english_name")
+    en_title = price_info.get("english_name") or english_name
     image_url = price_info.get("image") or search_result.get("image")
 
     message_lines = [f"🎮 {title}", f"🔗 https://store.steampowered.com/app/{appid}"]
 
-    if en_title and en_title != title:
+    if en_title:
         message_lines.append(f"英文名: {en_title}")
 
     message_lines.append("\n当前价格：")
@@ -1101,7 +1115,7 @@ async def handle_steam_price(args: Message = CommandArg()):
         message_lines.append(line)
 
     historical_low = price_info.get("historical_low")
-    if historical_low:
+    if historical_low is not None:
         low_currency = price_info.get("historical_low_currency", "CNY").upper()
         low_date = price_info.get("historical_low_date")
         low_text = _format_price_with_currency(float(historical_low), low_currency)
@@ -1110,6 +1124,11 @@ async def handle_steam_price(args: Message = CommandArg()):
         if low_date:
             low_text += f"，记录时间 {low_date}"
         message_lines.append(f"\n📉 史低价：{low_text}")
+    else:
+        if ITAD_API_KEY:
+            message_lines.append("\n📉 史低价：暂无数据（ITAD 查询无结果）")
+        else:
+            message_lines.append("\n📉 史低价：暂无数据（需要配置 ITAD API 密钥）")
 
     full_message = "\n".join(message_lines)
 
@@ -1150,39 +1169,33 @@ async def handle_steam_historical_low(event: MessageEvent, args: Message = Comma
             else:
                 await steam_historical_low.finish("❌ 未找到史低游戏，请稍后再试")
 
-        # 生成回复消息
-        msg = "💰 Steam 史低游戏推荐\n\n" if not tag else f"💰 {tag} 类史低游戏推荐\n\n"
-
-        for i, game in enumerate(games, 1):
-            name = game["name"]
-            current_price = game["current_price"]
-            original_price = game["original_price"]
-            discount = game["discount_percent"]
-            is_historical_low = game.get("is_historical_low", False)
-
-            # 构建单个游戏信息
-            game_info = f"{i}. {name}\n"
-            game_info += f"   💰 当前价格: ¥{current_price:.2f}"
-
-            if is_historical_low:
-                game_info += " 🔥史低价🔥"
-
-            game_info += f"\n   📉 折扣: {discount}%"
-
-            if original_price > 0:
-                game_info += f" (原价: ¥{original_price:.2f})"
-
-            game_info += f"\n   🔗 https://store.steampowered.com/app/{game['appid']}"
-            game_info += "\n"
-
-            msg += game_info
-
-        # 检查是否有促销活动
+        subtitle = ""
         sale_info = await steam_store_api.get_steam_specials_info()
         if sale_info and sale_info.get("is_active"):
-            msg += f"\n🎉 {sale_info['name']}进行中！还剩{sale_info['days_left']}天"
+            subtitle = f"{sale_info['name']}进行中，剩余 {sale_info['days_left']} 天"
 
-        await steam_historical_low.finish(msg.strip())
+        render_games: List[Dict] = []
+        async with httpx.AsyncClient(timeout=20) as client:
+            for game in games:
+                image_bytes = await fetch_image_bytes(game.get("image"), client)
+                info_text = f"¥{game['current_price']:.2f} (-{game['discount_percent']}%)"
+                extra_text = ""
+                if game.get("original_price"):
+                    extra_text = f"原价 ¥{game['original_price']:.2f}"
+                render_games.append(
+                    {
+                        "name": game.get("name", "未知游戏"),
+                        "image": image_bytes,
+                        "tags": game.get("tags", []) or [],
+                        "info": info_text,
+                        "extra": extra_text,
+                        "badge": "史低" if game.get("is_historical_low") else None,
+                    }
+                )
+
+        title = "💰 Steam 史低游戏推荐" if not tag else f"💰 {tag} 类史低游戏推荐"
+        img = draw_game_list_with_tags(title, render_games, subtitle=subtitle)
+        await steam_historical_low.finish(MessageSegment.image(pil_image_to_base64(img)))
 
     except FinishedException:
         raise
@@ -1210,38 +1223,41 @@ async def handle_steam_charts():
         if not games:
             await steam_charts.finish("❌ 获取热销榜失败，请稍后再试")
 
-        # 生成回复消息
-        msg = "🏆 Steam 全球热销榜 TOP 15\n\n"
-
-        for i, game in enumerate(games, 1):
-            name = game["name"]
-            price = game["price"]
-            discount = game["discount"]
-
-            # 构建单个游戏信息
-            game_info = f"{i}. {name}\n"
-
-            if discount > 0:
-                game_info += f"   💰 ¥{price:.2f} (-{discount}%)"
-            elif price > 0:
-                game_info += f"   💰 ¥{price:.2f}"
-            else:
-                game_info += "   🆓 免费游戏"
-
-            game_info += f"\n   🔗 https://store.steampowered.com/app/{game['appid']}"
-            game_info += "\n"
-
-            msg += game_info
-
-        # 检查促销信息
         sale_info = await steam_store_api.get_steam_specials_info()
+        subtitle = ""
         if sale_info:
             if sale_info.get("is_active"):
-                msg += f"\n🎉 {sale_info['name']}进行中！还剩{sale_info['days_left']}天"
+                subtitle = f"{sale_info['name']}进行中，剩余 {sale_info['days_left']} 天"
             elif sale_info.get("days_until"):
-                msg += f"\n📅 {sale_info['name']}将在{sale_info['days_until']}天后开始"
+                subtitle = f"{sale_info['name']}将在 {sale_info['days_until']} 天后开始"
 
-        await steam_charts.finish(msg.strip())
+        render_games: List[Dict] = []
+        async with httpx.AsyncClient(timeout=20) as client:
+            for rank, game in enumerate(games, 1):
+                image_bytes = await fetch_image_bytes(game.get("image"), client)
+                price = game.get("price", 0)
+                discount = game.get("discount", 0)
+                if discount > 0:
+                    info_text = f"¥{price:.2f} (-{discount}%)"
+                elif price > 0:
+                    info_text = f"¥{price:.2f}"
+                else:
+                    info_text = "免费游戏"
+
+                render_games.append(
+                    {
+                        "name": game.get("name", "未知游戏"),
+                        "image": image_bytes,
+                        "tags": game.get("tags", []) or [],
+                        "info": info_text,
+                        "extra": f"appid: {game.get('appid', '')}",
+                        "badge": "TOP" if rank <= 3 else None,
+                    }
+                )
+
+        title = "🏆 Steam 全球热销榜 TOP 15"
+        img = draw_game_list_with_tags(title, render_games, subtitle=subtitle)
+        await steam_charts.finish(MessageSegment.image(pil_image_to_base64(img)))
 
     except FinishedException:
         raise
@@ -1312,14 +1328,14 @@ async def handle_steam_help(bot: Bot, event: MessageEvent):
 /steam游戏库 [@用户] - 查看完整游戏库
 /steam视奸 - 查看所有好友在线状态
 
-  【商店功能】⭐新功能⭐
-  /steam价格 <游戏名> [| 对比区列表] - 查询游戏国区价格、史低和折扣
-    示例：/steam价格 艾尔登法环 | us jp
-  /steam史低 - 查看热门史低游戏
-  /steam史低 <类型> - 查看特定类型的史低游戏
-    示例：/steam史低 类银河恶魔城
-  /steam榜单 - 查看Steam全球热销榜
-  /steam促销 - 查看当前促销活动信息
+【商店功能】
+/steam价格 <游戏名> [| 对比区列表] - 查询国区价格、各区折扣&史低，自动翻译英文名
+  示例：/steam价格 艾尔登法环 | us jp
+/steam史低 - 查看热门史低游戏
+/steam史低 <类型> - 查看特定类型的史低游戏
+  示例：/steam史低 类银河恶魔城
+/steam榜单 - 查看Steam全球热销榜
+/steam促销 - 查看当前促销活动信息
 
 【播报功能】
 /steam启用播报 - 启用游戏状态播报
@@ -1335,11 +1351,7 @@ async def handle_steam_help(bot: Bot, event: MessageEvent):
 3. 播报功能仅在群聊中生效
 4. 史低功能需要ITAD API密钥支持"""
 
-    # 私聊直接发送文本
-    if not isinstance(event, GroupMessageEvent):
-        await steam_help.finish(help_text)
-
-    # 群聊使用合并转发格式（聊天记录）
+    # 群聊/私聊统一使用合并转发格式（聊天记录）
     bot_id = event.self_id
     bot_info = await bot.get_stranger_info(user_id=bot_id)
     bot_name = bot_info.get("nickname", "SteamBot")
@@ -1393,8 +1405,15 @@ async def handle_steam_help(bot: Bot, event: MessageEvent):
         for title, content in sections
     ]
 
-    await bot.send_group_forward_msg(group_id=event.group_id, messages=nodes)
-    await steam_help.finish()
+    try:
+        if isinstance(event, GroupMessageEvent):
+            await bot.send_group_forward_msg(group_id=event.group_id, messages=nodes)
+        else:
+            await bot.send_private_forward_msg(user_id=event.user_id, messages=nodes)
+        await steam_help.finish()
+    except Exception:
+        # 兼容性兜底：若转发失败则发送纯文本帮助
+        await steam_help.finish(help_text)
 
 
 # ==================== 自动播报系统 ====================
