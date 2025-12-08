@@ -533,12 +533,24 @@ class SteamStoreAPI:
 
                     if timestamp:
                         try:
-                            if isinstance(timestamp, str) and timestamp.isdigit():
-                                timestamp = int(timestamp)
-                            if isinstance(timestamp, (int, float)):
-                                historical_low_date = datetime.fromtimestamp(int(timestamp)).strftime(
-                                    "%Y-%m-%d"
-                                )
+                            parsed_ts = None
+                            if isinstance(timestamp, str):
+                                if timestamp.isdigit():
+                                    parsed_ts = int(timestamp)
+                                else:
+                                    # 兼容 ISO 日期字符串，或者直接返回日期部分
+                                    try:
+                                        parsed_dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+                                        parsed_ts = int(parsed_dt.timestamp())
+                                    except Exception:
+                                        date_match = re.search(r"\d{4}-\d{2}-\d{2}", timestamp)
+                                        if date_match:
+                                            historical_low_date = date_match.group(0)
+                            elif isinstance(timestamp, (int, float)):
+                                parsed_ts = int(timestamp)
+
+                            if parsed_ts is not None:
+                                historical_low_date = datetime.fromtimestamp(parsed_ts).strftime("%Y-%m-%d")
                         except Exception:
                             logger.debug("解析史低时间戳失败", exc_info=True)
                             historical_low_date = None
