@@ -3,6 +3,8 @@ Steam功能插件 - 完整版
 支持Steam账号绑定、资料查询、游戏库查询、好友状态监控、自动播报等功能
 """
 import base64
+from datetime import datetime, timezone
+import re
 from io import BytesIO
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -65,6 +67,7 @@ __plugin_meta__ = PluginMetadata(
         "/steam昵称 <昵称> - 设置Steam显示昵称\n"
         "/steam启用播报 - 在当前群启用游戏状态播报\n"
         "/steam禁用播报 - 在当前群禁用游戏状态播报\n"
+        "/steam价格 <游戏名> [| 对比区列表] - 查询游戏价格和史低\n"
         "/steam帮助 - 显示Steam插件帮助"
     )
 )
@@ -76,6 +79,21 @@ STEAM_API_KEY = getattr(config, "steam_api_key", None)
 STEAM_BROADCAST_INTERVAL = getattr(config, "steam_broadcast_interval", 300)  # 默认5分钟
 STEAM_BROADCAST_ENABLED = getattr(config, "steam_broadcast_enabled", True)
 ITAD_API_KEY = getattr(config, "itad_api_key", None)  # IsThereAnyDeal API密钥
+# 价格查询配置
+STEAM_PRICE_COMPARE_REGIONS = getattr(
+    config, "steam_price_compare_regions", ["cn", "us", "jp"]
+)
+STEAM_PRICE_EXCHANGE_RATES = getattr(
+    config,
+    "steam_price_exchange_rates",
+    {
+        "CNY": 1,
+        "USD": 7.2,
+        "EUR": 7.8,
+        "UAH": 0.2,
+        "JPY": 0.052,
+    },
+)
 
 # 初始化Steam API
 steam_api: Optional[SteamAPI] = None
@@ -1007,6 +1025,100 @@ async def handle_disable_broadcast(event: MessageEvent):
     await steam_disable_broadcast.finish("✅ 已禁用Steam游戏状态播报")
 
 
+# Steam价格查询
+steam_price_query = on_command(
+    "steam价格", aliases={"steam价", "游戏价格", "steam查价"}, priority=5, block=True
+)
+
+
+def _format_price_with_currency(value: float, currency: str) -> str:
+    symbols = {
+        "CNY": "¥",
+        "USD": "$",
+        "EUR": "€",
+        "JPY": "¥",
+        "UAH": "₴",
+    }
+    symbol = symbols.get(currency.upper(), f"{currency} ")
+    return f"{symbol}{value:.2f}"
+
+
+@steam_price_query.handle()
+async def handle_steam_price(args: Message = CommandArg()):
+    """查询Steam游戏价格、史低、折扣等信息"""
+    if not steam_store_api:
+        await steam_price_query.finish("❌ Steam商店功能未初始化")
+
+    raw_text = args.extract_plain_text().strip()
+    if not raw_text:
+        await steam_price_query.finish("❌ 请提供要查询的游戏名称")
+
+    game_name = raw_text
+    regions = STEAM_PRICE_COMPARE_REGIONS
+
+    if "|" in raw_text:
+        name_part, region_part = raw_text.split("|", 1)
+        game_name = name_part.strip()
+        custom_regions = [r.strip() for r in re.split(r"[,\s]+", region_part) if r.strip()]
+        if custom_regions:
+            regions = custom_regions
+
+    # 搜索游戏
+    search_result = await steam_store_api.search_game(game_name)
+    if not search_result:
+        await steam_price_query.finish("❌ 未找到相关游戏，请检查名称后重试")
+
+    appid = search_result.get("appid")
+    english_name = search_result.get("name")
+
+    # 获取价格信息
+    price_info = await steam_store_api.get_game_price_info(
+        appid, regions=regions, exchange_rates=STEAM_PRICE_EXCHANGE_RATES, english_name=english_name
+    )
+
+    if not price_info:
+        await steam_price_query.finish("❌ 未能获取该游戏的价格信息")
+
+    title = price_info.get("name") or english_name or game_name
+    en_title = price_info.get("english_name")
+    image_url = price_info.get("image") or search_result.get("image")
+
+    message_lines = [f"🎮 {title}", f"🔗 https://store.steampowered.com/app/{appid}"]
+
+    if en_title and en_title != title:
+        message_lines.append(f"英文名: {en_title}")
+
+    message_lines.append("\n当前价格：")
+    for price in price_info.get("prices", []):
+        line = f"- {price['region'].upper()}: "
+        line += _format_price_with_currency(price["price"], price["currency"])
+        if price.get("discount", 0):
+            line += f" (-{price['discount']}%)"
+        if price.get("converted_price") is not None and price["currency"].upper() != "CNY":
+            line += f" ≈ ¥{price['converted_price']:.2f}"
+        if price.get("original_price") and price.get("discount", 0):
+            line += f" (原价 {_format_price_with_currency(price['original_price'], price['currency'])})"
+        message_lines.append(line)
+
+    historical_low = price_info.get("historical_low")
+    if historical_low:
+        low_currency = price_info.get("historical_low_currency", "CNY").upper()
+        low_date = price_info.get("historical_low_date")
+        low_text = _format_price_with_currency(float(historical_low), low_currency)
+        if low_currency != "CNY" and low_currency in STEAM_PRICE_EXCHANGE_RATES:
+            low_text += f" (约¥{float(historical_low) * float(STEAM_PRICE_EXCHANGE_RATES[low_currency]):.2f})"
+        if low_date:
+            low_text += f"，记录时间 {low_date}"
+        message_lines.append(f"\n📉 史低价：{low_text}")
+
+    full_message = "\n".join(message_lines)
+
+    if image_url:
+        await steam_price_query.finish(MessageSegment.image(image_url) + MessageSegment.text(full_message))
+
+    await steam_price_query.finish(full_message)
+
+
 # Steam史低游戏查询
 steam_historical_low = on_command("steam史低", aliases={"史低游戏", "史低"}, priority=5, block=True)
 
@@ -1201,12 +1313,14 @@ async def handle_steam_help():
 /steam游戏库 [@用户] - 查看完整游戏库
 /steam视奸 - 查看所有好友在线状态
 
-【商店功能】⭐新功能⭐
-/steam史低 - 查看热门史低游戏
-/steam史低 <类型> - 查看特定类型的史低游戏
-  示例：/steam史低 类银河恶魔城
-/steam榜单 - 查看Steam全球热销榜
-/steam促销 - 查看当前促销活动信息
+  【商店功能】⭐新功能⭐
+  /steam价格 <游戏名> [| 对比区列表] - 查询游戏国区价格、史低和折扣
+    示例：/steam价格 艾尔登法环 | us jp
+  /steam史低 - 查看热门史低游戏
+  /steam史低 <类型> - 查看特定类型的史低游戏
+    示例：/steam史低 类银河恶魔城
+  /steam榜单 - 查看Steam全球热销榜
+  /steam促销 - 查看当前促销活动信息
 
 【播报功能】
 /steam启用播报 - 启用游戏状态播报
