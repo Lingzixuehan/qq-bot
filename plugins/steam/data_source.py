@@ -300,3 +300,49 @@ class DisableParentData:
     def is_disabled(self, parent_id: str) -> bool:
         """检查群组是否禁用播报"""
         return parent_id in self.content
+
+
+class SubscriptionData:
+    """订阅信息管理类"""
+
+    def __init__(self, save_path: Path) -> None:
+        self.content: Dict[str, List[str]] = {"freebie": [], "discount": []}
+        self._save_path = save_path
+
+        if save_path.exists():
+            try:
+                data = json.loads(save_path.read_text("utf-8"))
+                if isinstance(data, dict):
+                    self.content.update({k: v for k, v in data.items() if isinstance(v, list)})
+            except Exception:
+                # 数据异常则覆盖
+                self.content = {"freebie": [], "discount": []}
+                self.save()
+        else:
+            save_path.parent.mkdir(parents=True, exist_ok=True)
+            self.save()
+
+    def save(self) -> None:
+        """保存订阅数据"""
+        with open(self._save_path, "w", encoding="utf-8") as f:
+            json.dump(self.content, f, indent=4, ensure_ascii=False)
+
+    def add(self, parent_id: str, category: str) -> None:
+        """添加订阅"""
+        if category not in self.content:
+            self.content[category] = []
+        if parent_id not in self.content[category]:
+            self.content[category].append(parent_id)
+            self.save()
+
+    def remove(self, parent_id: str, category: str) -> None:
+        """移除订阅"""
+        if category not in self.content:
+            return
+        if parent_id in self.content[category]:
+            self.content[category].remove(parent_id)
+            self.save()
+
+    def get(self, category: str) -> List[str]:
+        """获取订阅列表"""
+        return self.content.get(category, [])
