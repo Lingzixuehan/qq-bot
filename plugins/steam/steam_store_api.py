@@ -1244,26 +1244,47 @@ class SteamStoreAPI:
                 data = response.json()
 
                 # 处理返回数据
+                # API返回格式: {timestamp, shop, deal: {price, regular, cut}}
                 history_list = []
                 for record in data:
                     shop = record.get("shop", {})
-                    price_info = record.get("price", {})
-                    regular_info = record.get("regular", {})
+                    deal = record.get("deal", {})
+
+                    # deal 可能为 null
+                    if not deal:
+                        continue
+
+                    price_info = deal.get("price", {})
+                    regular_info = deal.get("regular", {})
+
+                    # 提取价格，优先使用 amount，如果没有则尝试 amountInt
+                    price_amount = price_info.get("amount") if price_info else None
+                    if price_amount is None and price_info:
+                        # 尝试从 amountInt 获取（单位是分，需要除以100）
+                        amount_int = price_info.get("amountInt")
+                        if amount_int is not None:
+                            price_amount = amount_int / 100
 
                     history_list.append({
                         "shop_id": shop.get("id"),
                         "shop_name": shop.get("name"),
                         "timestamp": record.get("timestamp"),
-                        "price": price_info.get("amount"),
-                        "currency": price_info.get("currency"),
+                        "price": price_amount,
+                        "currency": price_info.get("currency") if price_info else None,
                         "regular_price": regular_info.get("amount") if regular_info else None,
-                        "cut": record.get("cut", 0)
+                        "cut": deal.get("cut", 0)
                     })
 
                 # 按时间排序
                 history_list.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
 
-                logger.info(f"ITAD获取到 {len(history_list)} 条价格历史")
+                # 调试日志：检查价格数据
+                valid_prices = [h["price"] for h in history_list if h.get("price") is not None]
+                logger.info(f"ITAD获取到 {len(history_list)} 条价格历史，有效价格数: {len(valid_prices)}")
+                if history_list and not valid_prices:
+                    # 打印第一条原始数据以供调试
+                    logger.debug(f"ITAD价格历史原始数据样例: {data[0] if data else 'empty'}")
+
                 return history_list
 
         except Exception as e:
