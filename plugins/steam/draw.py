@@ -2260,10 +2260,10 @@ def draw_price_history(
     game_name: str,
     history: List[Dict[str, Any]],
     width: int = 1000,
-    height: int = 600
+    height: int = 650
 ) -> Image.Image:
     """
-    渲染游戏价格历史走势图
+    渲染游戏价格历史走势图（阶梯图）
 
     Args:
         game_name: 游戏名称
@@ -2274,102 +2274,221 @@ def draw_price_history(
     Returns:
         价格走势图片
     """
-    padding = 50
-    chart_padding = 30
-    header_height = 80
+    from datetime import datetime
+
+    padding = 60
+    header_height = 70
+    legend_height = 50
+    x_axis_height = 80  # 横轴标签区域高度
 
     img = Image.new("RGBA", (width, height), (24, 27, 33, 255))
     draw = ImageDraw.Draw(img)
 
     # 标题
     title_font = get_font(FONT_SIZE_TITLE, "bold")
-    draw.text((padding, padding - 20), f"价格走势: {game_name}", font=title_font, fill=(255, 255, 255, 255))
+    draw.text((padding, 25), f"价格走势: {game_name}", font=title_font, fill=(255, 255, 255, 255))
 
     if not history:
         info_font = get_font(FONT_SIZE_LARGE, "regular")
         draw.text((width // 2, height // 2), "暂无价格历史数据", fill=(150, 150, 150, 255), font=info_font, anchor="mm")
         return img
 
-    # 提取数据
-    chart_left = padding + chart_padding
-    chart_right = width - padding - chart_padding
-    chart_top = header_height + chart_padding
-    chart_bottom = height - padding - chart_padding - 40
+    # 只保留Steam和Epic的数据
+    filtered_history = [
+        r for r in history
+        if r.get("shop_name") in ("Steam", "Epic Games Store", "Epic")
+    ]
+
+    if not filtered_history:
+        info_font = get_font(FONT_SIZE_LARGE, "regular")
+        draw.text((width // 2, height // 2), "Steam/Epic 暂无价格数据", fill=(150, 150, 150, 255), font=info_font, anchor="mm")
+        return img
+
+    # 图表区域
+    chart_left = padding + 50  # 左边留出价格标签空间
+    chart_right = width - padding
+    chart_top = header_height + 10
+    chart_bottom = height - x_axis_height - legend_height
     chart_width = chart_right - chart_left
     chart_height = chart_bottom - chart_top
 
     # 按商店分组
     shop_data = {}
-    for record in history:
+    for record in filtered_history:
         shop = record.get("shop_name", "Unknown")
+        # 标准化商店名称
+        if "Epic" in shop:
+            shop = "Epic"
         if shop not in shop_data:
             shop_data[shop] = []
         shop_data[shop].append(record)
 
-    # 获取价格范围
-    all_prices = [r.get("price", 0) for r in history if r.get("price")]
+    # 获取价格范围和时间范围
+    all_prices = [r.get("price", 0) for r in filtered_history if r.get("price")]
     if not all_prices:
         info_font = get_font(FONT_SIZE_LARGE, "regular")
         draw.text((width // 2, height // 2), "暂无有效价格数据", fill=(150, 150, 150, 255), font=info_font, anchor="mm")
         return img
 
-    min_price = min(all_prices) * 0.9
+    # 解析所有时间戳
+    all_timestamps = []
+    for r in filtered_history:
+        ts = r.get("timestamp", "")
+        if ts:
+            try:
+                dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                all_timestamps.append(dt)
+            except Exception:
+                pass
+
+    if not all_timestamps:
+        info_font = get_font(FONT_SIZE_LARGE, "regular")
+        draw.text((width // 2, height // 2), "暂无有效时间数据", fill=(150, 150, 150, 255), font=info_font, anchor="mm")
+        return img
+
+    min_time = min(all_timestamps)
+    max_time = max(all_timestamps)
+    time_range = (max_time - min_time).total_seconds() or 1
+
+    min_price = min(all_prices) * 0.85
     max_price = max(all_prices) * 1.1
-    price_range = max_price - min_price if max_price > min_price else 1
+    # 确保价格范围合理
+    if min_price == max_price:
+        min_price = min_price * 0.8
+        max_price = max_price * 1.2
+    price_range = max_price - min_price
 
-    # 绘制图表背景网格
+    # 绘制图表背景网格和Y轴价格标签
     grid_color = (50, 55, 65, 255)
-    for i in range(5):
-        y = chart_top + (chart_height * i // 4)
+    label_font = get_font(12, "regular")
+    num_y_lines = 6
+
+    for i in range(num_y_lines):
+        y = chart_top + (chart_height * i // (num_y_lines - 1))
         draw.line([(chart_left, y), (chart_right, y)], fill=grid_color, width=1)
-        price_label = max_price - (price_range * i / 4)
-        label_font = get_font(FONT_SIZE_TINY, "regular")
-        draw.text((chart_left - 10, y), f"¥{price_label:.0f}", font=label_font, fill=(120, 120, 130, 255), anchor="rm")
+        price_label = max_price - (price_range * i / (num_y_lines - 1))
+        draw.text((chart_left - 8, y), f"¥{price_label:.0f}", font=label_font, fill=(160, 165, 175, 255), anchor="rm")
 
-    # 商店颜色
-    shop_colors = [
-        (100, 180, 255, 255),  # Steam - 蓝
-        (255, 150, 100, 255),  # GOG - 橙
-        (150, 255, 150, 255),  # Epic - 绿
-        (255, 200, 100, 255),  # Humble - 黄
-        (200, 150, 255, 255),  # Fanatical - 紫
-    ]
+    # 绘制Y轴
+    draw.line([(chart_left, chart_top), (chart_left, chart_bottom)], fill=(80, 85, 95, 255), width=2)
+    # 绘制X轴
+    draw.line([(chart_left, chart_bottom), (chart_right, chart_bottom)], fill=(80, 85, 95, 255), width=2)
 
-    # 绘制各商店价格曲线
-    legend_y = chart_bottom + 30
-    legend_x = chart_left
-    small_font = get_font(FONT_SIZE_TINY, "regular")
+    # 商店颜色（只有Steam和Epic）
+    shop_colors = {
+        "Steam": (100, 180, 255, 255),      # Steam - 蓝色
+        "Epic": (150, 255, 150, 255),       # Epic - 绿色
+    }
 
-    for shop_idx, (shop, records) in enumerate(list(shop_data.items())[:5]):
-        color = shop_colors[shop_idx % len(shop_colors)]
+    # 收集所有价格变动时间点用于X轴标签
+    all_time_points = []
 
-        # 排序并提取点
-        sorted_records = sorted(records, key=lambda x: x.get("timestamp", ""))
-        if len(sorted_records) < 2:
+    # 辅助函数：时间转X坐标
+    def time_to_x(dt: datetime) -> int:
+        elapsed = (dt - min_time).total_seconds()
+        return int(chart_left + (elapsed / time_range) * chart_width)
+
+    # 辅助函数：价格转Y坐标
+    def price_to_y(price: float) -> int:
+        return int(chart_bottom - ((price - min_price) / price_range) * chart_height)
+
+    # 绘制各商店价格曲线（阶梯图）
+    small_font = get_font(11, "regular")
+
+    for shop, records in shop_data.items():
+        color = shop_colors.get(shop, (200, 200, 200, 255))
+
+        # 按时间排序
+        sorted_records = []
+        for record in records:
+            ts = record.get("timestamp", "")
+            price = record.get("price")
+            if ts and price:
+                try:
+                    dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                    sorted_records.append((dt, price, record))
+                except Exception:
+                    pass
+
+        sorted_records.sort(key=lambda x: x[0])
+
+        if len(sorted_records) < 1:
             continue
 
-        points = []
-        for i, record in enumerate(sorted_records):
-            price = record.get("price", 0)
-            if not price:
-                continue
-            x = chart_left + (chart_width * i // (len(sorted_records) - 1)) if len(sorted_records) > 1 else chart_left
-            y = chart_bottom - ((price - min_price) / price_range * chart_height)
-            points.append((x, int(y)))
+        # 绘制阶梯图（方波）
+        prev_x, prev_y = None, None
+        for i, (dt, price, record) in enumerate(sorted_records):
+            x = time_to_x(dt)
+            y = price_to_y(price)
 
-        # 绘制折线
-        if len(points) >= 2:
-            for i in range(len(points) - 1):
-                draw.line([points[i], points[i + 1]], fill=color, width=2)
+            all_time_points.append((dt, x, price, shop))
 
-        # 绘制点
-        for point in points:
-            draw.ellipse([point[0] - 4, point[1] - 4, point[0] + 4, point[1] + 4], fill=color)
+            if prev_x is not None and prev_y is not None:
+                # 先画水平线（保持前一个价格）
+                draw.line([(prev_x, prev_y), (x, prev_y)], fill=color, width=3)
+                # 再画垂直线（价格跳变）
+                draw.line([(x, prev_y), (x, y)], fill=color, width=3)
 
-        # 图例
-        draw.rectangle([legend_x, legend_y, legend_x + 20, legend_y + 12], fill=color)
-        draw.text((legend_x + 28, legend_y - 2), shop, font=small_font, fill=(200, 200, 210, 255))
-        legend_x += draw.textlength(shop, font=small_font) + 50
+            # 绘制价格变动点
+            draw.ellipse([x - 5, y - 5, x + 5, y + 5], fill=color, outline=(255, 255, 255, 100))
+
+            prev_x, prev_y = x, y
+
+        # 最后一个点延伸到图表右边缘
+        if prev_x is not None and prev_y is not None and prev_x < chart_right - 10:
+            draw.line([(prev_x, prev_y), (chart_right, prev_y)], fill=color, width=3)
+
+    # 绘制X轴时间标签（选择关键时间点）
+    all_time_points.sort(key=lambda x: x[0])
+
+    # 选择要显示的时间点（最多显示8个，避免重叠）
+    max_labels = 8
+    if len(all_time_points) <= max_labels:
+        label_points = all_time_points
+    else:
+        # 均匀选择时间点
+        step = len(all_time_points) // max_labels
+        label_points = [all_time_points[i] for i in range(0, len(all_time_points), step)][:max_labels]
+
+    time_label_font = get_font(10, "regular")
+    shown_x_positions = set()
+
+    for dt, x, price, shop in label_points:
+        # 避免标签重叠
+        skip = False
+        for shown_x in shown_x_positions:
+            if abs(x - shown_x) < 70:
+                skip = True
+                break
+        if skip:
+            continue
+
+        shown_x_positions.add(x)
+
+        # 绘制垂直参考线
+        draw.line([(x, chart_top), (x, chart_bottom)], fill=(45, 50, 60, 255), width=1)
+
+        # 时间标签（旋转显示日期）
+        date_str = dt.strftime("%m-%d")
+        year_str = dt.strftime("%Y")
+
+        draw.text((x, chart_bottom + 8), date_str, font=time_label_font, fill=(140, 145, 155, 255), anchor="mt")
+        draw.text((x, chart_bottom + 24), year_str, font=time_label_font, fill=(100, 105, 115, 255), anchor="mt")
+
+    # 绘制图例
+    legend_y = height - legend_height + 10
+    legend_x = chart_left
+    legend_font = get_font(14, "regular")
+
+    for shop, color in shop_colors.items():
+        if shop in shop_data:
+            draw.rectangle([legend_x, legend_y, legend_x + 25, legend_y + 14], fill=color)
+            draw.text((legend_x + 32, legend_y - 1), shop, font=legend_font, fill=(220, 220, 230, 255))
+            legend_x += 120
+
+    # 添加数据来源标注
+    source_font = get_font(10, "regular")
+    draw.text((width - padding, height - 15), "数据来源: IsThereAnyDeal", font=source_font, fill=(80, 85, 95, 255), anchor="rb")
 
     return img
 
