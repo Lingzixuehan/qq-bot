@@ -9,6 +9,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Dict, List, Optional
 import httpx
+from PIL import Image
 
 from nonebot import on_command, get_driver
 from nonebot.adapters.onebot.v11 import Bot, MessageEvent, GroupMessageEvent, Message, MessageSegment
@@ -49,7 +50,7 @@ from common.steam_api import SteamAPI, format_playtime, get_player_state_text
 
 # 导入新模块
 from .data_source import BindData, SteamInfoData, ParentData, DisableParentData, SubscriptionData
-from .draw import draw_friends_status, draw_start_gaming, draw_game_list_with_tags, draw_game_price_info
+from .draw import draw_friends_status, draw_friends_status_steam, draw_start_gaming, draw_game_list_with_tags, draw_game_price_info
 from .utils import fetch_avatar, convert_player_name_to_nickname
 from .models import Player, ProcessedPlayer
 from .steam_store_api import SteamStoreAPI
@@ -914,19 +915,59 @@ async def handle_steam_spy(event: MessageEvent):
 
     players_info_sorted = sorted(players_info, key=get_sort_key)
 
-    # 获取头像字典
-    avatars: Dict[str, any] = {}
+    # 转换数据为 Steam 风格函数所需格式
+    steam_data = []
     for player in players_info_sorted:
         steam_id = player.get("steamid", "")
         try:
             avatar = await fetch_avatar(player, avatar_cache_dir)
-            avatars[steam_id] = avatar
         except Exception as e:
             logger.error(f"获取头像失败 {steam_id}: {e}")
+            avatar = Image.new("RGB", (50, 50), (100, 100, 100))
 
-    # 使用新的draw_friends_status生成图片
+        # 确定状态文本
+        personastate = player.get("personastate", 0)
+        game_info = player.get("gameextrainfo")
+        if personastate == 0:
+            lastlogoff = player.get("lastlogoff", 0)
+            if lastlogoff > 0:
+                from datetime import datetime, timezone
+                now = datetime.now(timezone.utc).timestamp()
+                offline_seconds = int(now - lastlogoff)
+                if offline_seconds < 3600:
+                    status = f"上次在线 {offline_seconds // 60} 分钟前"
+                elif offline_seconds < 86400:
+                    status = f"上次在线 {offline_seconds // 3600} 小时前"
+                else:
+                    status = f"上次在线 {offline_seconds // 86400} 天前"
+            else:
+                status = "离线"
+        elif game_info:
+            status = game_info
+        elif personastate == 3:
+            status = "离开"
+        else:
+            status = "在线"
+
+        steam_data.append({
+            "avatar": avatar,
+            "name": player.get("personaname", "Unknown"),
+            "status": status,
+            "personastate": personastate,
+            "nickname": None,  # 可以从 bind_data 获取
+        })
+
+    # 获取第一个用户作为 "parent"（头部显示）
+    if steam_data:
+        parent_avatar = steam_data[0]["avatar"]
+        parent_name = f"Steam 好友 ({len(steam_data)}人)"
+    else:
+        parent_avatar = Image.new("RGB", (72, 72), (100, 100, 100))
+        parent_name = "Steam 好友"
+
+    # 使用 Steam 风格函数生成图片
     try:
-        friends_image = draw_friends_status(players_info_sorted, avatars, show_title=True)
+        friends_image = draw_friends_status_steam(parent_avatar, parent_name, steam_data)
         img_base64 = pil_image_to_base64(friends_image)
         await steam_spy.finish(MessageSegment.image(img_base64))
     except FinishedException:
