@@ -50,7 +50,12 @@ from common.steam_api import SteamAPI, format_playtime, get_player_state_text
 
 # 导入新模块
 from .data_source import BindData, SteamInfoData, ParentData, DisableParentData, SubscriptionData
-from .draw import draw_friends_status, draw_friends_status_steam, draw_start_gaming, draw_game_list_with_tags, draw_game_price_info
+from .draw import (
+    draw_friends_status, draw_friends_status_steam, draw_start_gaming,
+    draw_game_list_with_tags, draw_game_price_info,
+    draw_itad_deals, draw_price_history, draw_subscriptions_info,
+    draw_cross_platform_prices, draw_game_search_results
+)
 from .utils import fetch_avatar, fetch_qq_group_avatar, convert_player_name_to_nickname
 from .models import Player, ProcessedPlayer
 from .steam_store_api import SteamStoreAPI
@@ -58,7 +63,7 @@ from .steam_store_api import SteamStoreAPI
 # 插件元数据
 __plugin_meta__ = PluginMetadata(
     name="Steam功能",
-    description="Steam账号绑定、资料查询、游戏状态监控",
+    description="Steam账号绑定、资料查询、游戏状态监控、ITAD跨平台价格查询",
     usage=(
         "/绑定steam <Steam ID或个性化URL> - 绑定Steam账号\n"
         "/解绑steam - 解绑Steam账号\n"
@@ -73,6 +78,11 @@ __plugin_meta__ = PluginMetadata(
         "/steam喜加一 - 查看当前限时免费游戏\n"
         "/steam喜加一订阅 / steam喜加一退订 - 订阅或退订喜加一推送\n"
         "/steam折扣订阅 / steam折扣退订 - 订阅或退订高折扣推送\n"
+        "/steam搜索 <游戏名> - 增强游戏搜索（ITAD）\n"
+        "/全网优惠 - 查看全网热门优惠\n"
+        "/steam价格走势 <游戏名> - 查看历史价格走势\n"
+        "/steam订阅查询 <游戏名> - 查询游戏订阅服务\n"
+        "/steam比价 <游戏名> - 跨平台比价\n"
         "/steam帮助 - 显示Steam插件帮助"
     )
 )
@@ -1534,6 +1544,231 @@ async def handle_steam_sales():
         await steam_sales.finish("❌ 查询失败，请稍后再试")
 
 
+# ==================== ITAD增强功能 ====================
+
+# Steam增强搜索
+steam_search = on_command("steam搜索", aliases={"搜索游戏", "itad搜索"}, priority=5, block=True)
+
+
+@steam_search.handle()
+async def handle_steam_search(args: Message = CommandArg()):
+    """使用ITAD增强搜索游戏"""
+    if not steam_store_api:
+        await steam_search.finish("❌ Steam商店功能未初始化")
+
+    keyword = args.extract_plain_text().strip()
+    if not keyword:
+        await steam_search.finish("❌ 请提供要搜索的游戏名称\n用法：/steam搜索 <游戏名>")
+
+    await steam_search.send(f"🔍 正在搜索 '{keyword}'...")
+
+    try:
+        results = await steam_store_api.search_games_itad(keyword, limit=15)
+        if not results:
+            await steam_search.finish(f"❌ 未找到与 '{keyword}' 相关的游戏")
+
+        # 渲染搜索结果图片
+        img = draw_game_search_results(keyword, results)
+        await steam_search.finish(MessageSegment.image(pil_image_to_base64(img)))
+    except FinishedException:
+        raise
+    except Exception as e:
+        logger.error(f"搜索游戏失败: {e}", exc_info=True)
+        await steam_search.finish("❌ 搜索失败，请稍后重试")
+
+
+# 全网热门优惠
+itad_deals = on_command("全网优惠", aliases={"steam优惠", "itad优惠", "热门优惠"}, priority=5, block=True)
+
+
+@itad_deals.handle()
+async def handle_itad_deals(args: Message = CommandArg()):
+    """获取ITAD全网热门优惠"""
+    if not steam_store_api:
+        await itad_deals.finish("❌ Steam商店功能未初始化")
+
+    # 解析参数
+    raw_text = args.extract_plain_text().strip()
+    limit = 20
+    sort = "-cut"  # 默认按折扣力度排序
+
+    if raw_text:
+        parts = raw_text.split()
+        for part in parts:
+            if part.isdigit():
+                limit = min(int(part), 50)
+            elif part in ["-cut", "-price", "cut", "price"]:
+                sort = part if part.startswith("-") else f"-{part}"
+
+    await itad_deals.send("🔍 正在获取全网热门优惠...")
+
+    try:
+        deals_data = await steam_store_api.get_itad_deals(limit=limit, sort=sort)
+        if not deals_data or not deals_data.get("list"):
+            await itad_deals.finish("❌ 暂无热门优惠信息")
+
+        deals = deals_data.get("list", [])
+
+        # 渲染优惠列表图片
+        img = draw_itad_deals(deals, title="🔥 全网热门优惠", subtitle=f"共 {len(deals)} 个优惠")
+        await itad_deals.finish(MessageSegment.image(pil_image_to_base64(img)))
+    except FinishedException:
+        raise
+    except Exception as e:
+        logger.error(f"获取全网优惠失败: {e}", exc_info=True)
+        await itad_deals.finish("❌ 获取优惠信息失败，请稍后重试")
+
+
+# 历史价格走势
+steam_price_history = on_command("steam价格走势", aliases={"价格走势", "价格历史", "steam历史价格"}, priority=5, block=True)
+
+
+@steam_price_history.handle()
+async def handle_steam_price_history(args: Message = CommandArg()):
+    """查询游戏历史价格走势"""
+    if not steam_store_api:
+        await steam_price_history.finish("❌ Steam商店功能未初始化")
+
+    game_name = args.extract_plain_text().strip()
+    if not game_name:
+        await steam_price_history.finish("❌ 请提供要查询的游戏名称\n用法：/steam价格走势 <游戏名>")
+
+    await steam_price_history.send(f"🔍 正在查询 '{game_name}' 的价格历史...")
+
+    try:
+        # 先搜索游戏获取ITAD ID
+        search_result = await steam_store_api.search_game(game_name)
+        if not search_result:
+            await steam_price_history.finish(f"❌ 未找到游戏 '{game_name}'")
+
+        appid = search_result.get("appid")
+        display_name = search_result.get("name") or game_name
+
+        # 查找ITAD游戏ID
+        game_id = await steam_store_api.lookup_game_id(appid=appid)
+        if not game_id:
+            await steam_price_history.finish(f"❌ 无法获取 '{display_name}' 的价格历史数据")
+
+        # 获取价格历史
+        history = await steam_store_api.get_price_history(game_id)
+        if not history:
+            await steam_price_history.finish(f"❌ '{display_name}' 暂无价格历史记录")
+
+        # 渲染价格走势图
+        img = draw_price_history(display_name, history)
+        await steam_price_history.finish(MessageSegment.image(pil_image_to_base64(img)))
+    except FinishedException:
+        raise
+    except Exception as e:
+        logger.error(f"查询价格历史失败: {e}", exc_info=True)
+        await steam_price_history.finish("❌ 查询失败，请稍后重试")
+
+
+# 订阅服务查询
+steam_subscription = on_command("steam订阅查询", aliases={"订阅服务", "游戏订阅", "xgp查询"}, priority=5, block=True)
+
+
+@steam_subscription.handle()
+async def handle_steam_subscription(args: Message = CommandArg()):
+    """查询游戏所在的订阅服务"""
+    if not steam_store_api:
+        await steam_subscription.finish("❌ Steam商店功能未初始化")
+
+    game_name = args.extract_plain_text().strip()
+    if not game_name:
+        await steam_subscription.finish("❌ 请提供要查询的游戏名称\n用法：/steam订阅查询 <游戏名>")
+
+    await steam_subscription.send(f"🔍 正在查询 '{game_name}' 的订阅服务...")
+
+    try:
+        # 先搜索游戏获取ITAD ID
+        search_result = await steam_store_api.search_game(game_name)
+        if not search_result:
+            await steam_subscription.finish(f"❌ 未找到游戏 '{game_name}'")
+
+        appid = search_result.get("appid")
+        display_name = search_result.get("name") or game_name
+
+        # 查找ITAD游戏ID
+        game_id = await steam_store_api.lookup_game_id(appid=appid)
+        if not game_id:
+            await steam_subscription.finish(f"❌ 无法获取 '{display_name}' 的订阅信息")
+
+        # 获取订阅服务信息
+        subscriptions = await steam_store_api.get_game_subscriptions([game_id])
+        if not subscriptions:
+            await steam_subscription.finish(f"ℹ️ '{display_name}' 目前不在任何订阅服务中\n\n常见订阅服务包括：\n• Xbox Game Pass\n• EA Play\n• Ubisoft+\n• Humble Choice")
+
+        # 渲染订阅信息图片
+        img = draw_subscriptions_info(display_name, subscriptions)
+        await steam_subscription.finish(MessageSegment.image(pil_image_to_base64(img)))
+    except FinishedException:
+        raise
+    except Exception as e:
+        logger.error(f"查询订阅服务失败: {e}", exc_info=True)
+        await steam_subscription.finish("❌ 查询失败，请稍后重试")
+
+
+# 跨平台比价
+steam_cross_price = on_command("steam比价", aliases={"跨平台比价", "全平台比价", "比价"}, priority=5, block=True)
+
+
+@steam_cross_price.handle()
+async def handle_steam_cross_price(args: Message = CommandArg()):
+    """跨平台比价查询"""
+    if not steam_store_api:
+        await steam_cross_price.finish("❌ Steam商店功能未初始化")
+
+    game_name = args.extract_plain_text().strip()
+    if not game_name:
+        await steam_cross_price.finish("❌ 请提供要查询的游戏名称\n用法：/steam比价 <游戏名>")
+
+    await steam_cross_price.send(f"🔍 正在查询 '{game_name}' 的全平台价格...")
+
+    try:
+        # 先搜索游戏获取ITAD ID
+        search_result = await steam_store_api.search_game(game_name)
+        if not search_result:
+            await steam_cross_price.finish(f"❌ 未找到游戏 '{game_name}'")
+
+        appid = search_result.get("appid")
+        display_name = search_result.get("name") or game_name
+
+        # 查找ITAD游戏ID
+        game_id = await steam_store_api.lookup_game_id(appid=appid)
+        if not game_id:
+            await steam_cross_price.finish(f"❌ 无法获取 '{display_name}' 的跨平台价格")
+
+        # 获取所有平台价格
+        prices = await steam_store_api.get_all_platform_prices([game_id])
+        if not prices:
+            await steam_cross_price.finish(f"❌ '{display_name}' 暂无价格信息")
+
+        # 获取史低信息（可选）
+        history_low = None
+        try:
+            price_info = await steam_store_api.get_game_price_info(
+                appid, regions=["cn"], exchange_rates=STEAM_PRICE_EXCHANGE_RATES
+            )
+            if price_info:
+                history_low = {
+                    "price": price_info.get("historical_low"),
+                    "currency": price_info.get("historical_low_currency", "CNY"),
+                    "date": price_info.get("historical_low_date")
+                }
+        except Exception:
+            pass
+
+        # 渲染跨平台比价图
+        img = draw_cross_platform_prices(display_name, prices, history_low)
+        await steam_cross_price.finish(MessageSegment.image(pil_image_to_base64(img)))
+    except FinishedException:
+        raise
+    except Exception as e:
+        logger.error(f"查询跨平台价格失败: {e}", exc_info=True)
+        await steam_cross_price.finish("❌ 查询失败，请稍后重试")
+
+
 # Steam帮助
 steam_help = on_command("steam帮助", aliases={"steamhelp"}, priority=5, block=True)
 
@@ -1555,7 +1790,7 @@ async def handle_steam_help(bot: Bot, event: MessageEvent):
 /steam视奸 - 查看所有好友在线状态
 
 【商店功能】
-/steam价格 <游戏名> [| 对比区列表] - 查询国区价格、各区折扣&史低，自动翻译英文名
+/steam价格 <游戏名> [| 对比区列表] - 查询国区价格、各区折扣&史低
   示例：/steam价格 艾尔登法环 | us jp
 /steam史低 - 查看热门史低游戏
 /steam史低 <类型> - 查看特定类型的史低游戏
@@ -1565,6 +1800,14 @@ async def handle_steam_help(bot: Bot, event: MessageEvent):
 /steam喜加一 - 查看限时免费游戏
 /steam喜加一订阅 / steam喜加一退订 - 管理喜加一推送
 /steam折扣订阅 / steam折扣退订 - 管理高折扣推送
+
+【ITAD增强功能】
+/steam搜索 <游戏名> - 增强游戏搜索（跨平台）
+/全网优惠 [数量] [排序] - 查看全网热门优惠
+  示例：/全网优惠 30 -price
+/steam价格走势 <游戏名> - 查看游戏历史价格走势图
+/steam订阅查询 <游戏名> - 查询游戏是否在XGP/EA Play等订阅服务
+/steam比价 <游戏名> - 跨平台比价（Steam/GOG/Epic等）
 
 【播报功能】
 /steam启用播报 - 启用游戏状态播报
@@ -1578,7 +1821,7 @@ async def handle_steam_help(bot: Bot, event: MessageEvent):
 1. 绑定前需确保Steam资料为公开
 2. 游戏库需设置为公开才能查看
 3. 播报功能仅在群聊中生效
-4. 史低功能需要ITAD API密钥支持"""
+4. ITAD增强功能需要ITAD API密钥支持"""
 
     # 群聊/私聊统一使用合并转发格式（聊天记录）
     bot_id = event.self_id
@@ -1602,7 +1845,7 @@ async def handle_steam_help(bot: Bot, event: MessageEvent):
         ),
         (
             "【商店功能】",
-            "/steam价格 <游戏名> [| 对比区列表] - 查询国区价格、各区折扣&史低，自动翻译英文名\n"
+            "/steam价格 <游戏名> [| 对比区列表] - 查询国区价格、各区折扣&史低\n"
             "  示例：/steam价格 艾尔登法环 | us jp\n"
             "/steam史低 - 查看热门史低游戏\n"
             "/steam史低 <类型> - 查看特定类型的史低游戏\n"
@@ -1612,6 +1855,15 @@ async def handle_steam_help(bot: Bot, event: MessageEvent):
             "/steam喜加一 - 查看限时免费游戏\n"
             "/steam喜加一订阅 / steam喜加一退订 - 管理喜加一推送\n"
             "/steam折扣订阅 / steam折扣退订 - 管理高折扣推送",
+        ),
+        (
+            "【ITAD增强功能】",
+            "/steam搜索 <游戏名> - 增强游戏搜索（跨平台）\n"
+            "/全网优惠 [数量] [排序] - 查看全网热门优惠\n"
+            "  示例：/全网优惠 30 -price\n"
+            "/steam价格走势 <游戏名> - 查看游戏历史价格走势图\n"
+            "/steam订阅查询 <游戏名> - 查询游戏是否在XGP/EA Play等订阅服务\n"
+            "/steam比价 <游戏名> - 跨平台比价（Steam/GOG/Epic等）",
         ),
         (
             "【播报功能】",
@@ -1624,7 +1876,7 @@ async def handle_steam_help(bot: Bot, event: MessageEvent):
             "1. 绑定前需确保Steam资料为公开\n"
             "2. 游戏库需设置为公开才能查看\n"
             "3. 播报功能仅在群聊中生效\n"
-            "4. 史低功能需要ITAD API密钥支持",
+            "4. ITAD增强功能需要ITAD API密钥支持",
         ),
     ]
 
