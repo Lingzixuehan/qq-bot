@@ -1199,6 +1199,10 @@ class SteamStoreAPI:
             logger.error(f"ITAD获取优惠失败: {e}", exc_info=True)
             return {"nextOffset": 0, "hasMore": False, "list": []}
 
+    # Steam和Epic的商店ID
+    SHOP_ID_STEAM = 61
+    SHOP_ID_EPIC = 35
+
     async def get_price_history(
         self,
         game_id: str,
@@ -1212,7 +1216,7 @@ class SteamStoreAPI:
         Args:
             game_id: ITAD游戏ID (UUID格式)
             country: 国家代码
-            shops: 商店ID列表
+            shops: 商店ID列表，默认只获取Steam和Epic
             since: 起始日期 (ISO 8601格式)，默认最近3个月
 
         Returns:
@@ -1221,6 +1225,10 @@ class SteamStoreAPI:
         if not self.itad_api_key:
             logger.warning("ITAD API密钥未配置，无法获取价格历史")
             return []
+
+        # 默认只获取Steam和Epic
+        if shops is None:
+            shops = [self.SHOP_ID_STEAM, self.SHOP_ID_EPIC]
 
         try:
             async with httpx.AsyncClient(timeout=30) as client:
