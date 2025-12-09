@@ -4,7 +4,7 @@
 """
 import aiosqlite
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 import json
 
 DATA_DIR = Path("data")
@@ -320,3 +320,24 @@ class SteamDB:
             )
             rows = await cursor.fetchall()
             return [{"qq_id": r[0], "steam_id": r[1], "steam_name": r[2]} for r in rows]
+
+    @staticmethod
+    async def get_bindings_by_users(user_ids: List[str]) -> Dict[str, dict]:
+        """批量获取指定用户的绑定信息"""
+        if not user_ids:
+            return {}
+
+        placeholders = ",".join(["?"] * len(user_ids))
+        query = (
+            f"SELECT qq_id, steam_id, steam_name FROM steam_bindings WHERE qq_id IN ({placeholders})"
+        )
+
+        async with aiosqlite.connect(DB_PATH) as db:
+            cursor = await db.execute(query, user_ids)
+            rows = await cursor.fetchall()
+
+        return {
+            row[0]: {"steam_id": row[1], "steam_name": row[2]}
+            for row in rows
+            if row[1]
+        }

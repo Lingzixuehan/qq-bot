@@ -5,7 +5,7 @@ import httpx
 from io import BytesIO
 from PIL import Image
 from pathlib import Path
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, Tuple
 from datetime import datetime, timezone, timedelta
 from nonebot.log import logger
 
@@ -37,7 +37,16 @@ async def fetch_qq_group_avatar(group_id: str, size: int = 640) -> Image.Image:
         return Image.new("RGB", (size, size), (100, 100, 100))
 
 
-async def _fetch_avatar(avatar_url: str, proxy: Optional[str] = None) -> Image.Image:
+def _load_default_avatar(size: int = 100) -> Image.Image:
+    """返回默认头像"""
+    default_avatar_path = Path(__file__).parent / "res/unknown_avatar.jpg"
+    if default_avatar_path.exists():
+        with Image.open(default_avatar_path) as img:
+            return img.convert("RGB")
+    return Image.new("RGB", (size, size), (100, 100, 100))
+
+
+async def _fetch_avatar(avatar_url: str, proxy: Optional[str] = None) -> Tuple[Image.Image, bool]:
     """
     异步获取头像图片
 
@@ -48,20 +57,20 @@ async def _fetch_avatar(avatar_url: str, proxy: Optional[str] = None) -> Image.I
     Returns:
         PIL Image对象，失败时返回默认头像
     """
+    client_kwargs = {"timeout": 30.0}
+    if proxy:
+        client_kwargs["proxies"] = proxy
+
     try:
-        async with httpx.AsyncClient(proxies=proxy, timeout=30.0) as client:
+        async with httpx.AsyncClient(**client_kwargs) as client:
             logger.debug(f"正在获取头像: {avatar_url}")
             response = await client.get(avatar_url)
             response.raise_for_status()
-            return Image.open(BytesIO(response.content))
+            with Image.open(BytesIO(response.content)) as img:
+                return img.convert("RGB"), True
     except Exception as e:
         logger.warning(f"获取头像失败 {avatar_url}: {e}")
-        # 返回默认头像
-        default_avatar_path = Path(__file__).parent / "res/unknown_avatar.jpg"
-        if default_avatar_path.exists():
-            return Image.open(default_avatar_path)
-        # 如果默认头像也不存在，创建一个灰色占位图
-        return Image.new("RGB", (100, 100), (100, 100, 100))
+        return _load_default_avatar(), False
 
 
 async def fetch_avatar(
@@ -82,18 +91,20 @@ async def fetch_avatar(
     """
     steam_id = player.get("steamid", "")
     avatar_hash = player.get("avatarhash", "")
+    cache_version = "v2"
 
     # 如果有avatar_hash，使用它作为缓存key
     if avatar_hash:
-        cache_path = avatar_dir / f"{steam_id}_{avatar_hash}.png"
+        cache_path = avatar_dir / f"{steam_id}_{avatar_hash}_{cache_version}.png"
     else:
-        cache_path = avatar_dir / f"{steam_id}.png"
+        cache_path = avatar_dir / f"{steam_id}_{cache_version}.png"
 
     # 检查缓存
     if cache_path.exists():
         try:
             logger.debug(f"使用缓存头像: {cache_path}")
-            return Image.open(cache_path)
+            with Image.open(cache_path) as img:
+                return img.convert("RGB")
         except Exception as e:
             logger.warning(f"读取缓存头像失败 {cache_path}: {e}")
 
@@ -101,19 +112,22 @@ async def fetch_avatar(
     avatar_url = player.get("avatarfull") or player.get("avatarmedium") or player.get("avatar", "")
     if not avatar_url:
         logger.warning(f"玩家 {steam_id} 没有头像URL，使用默认头像")
-        default_avatar_path = Path(__file__).parent / "res/unknown_avatar.jpg"
-        if default_avatar_path.exists():
-            return Image.open(default_avatar_path)
-        return Image.new("RGB", (100, 100), (100, 100, 100))
+        return _load_default_avatar()
 
     logger.debug(f"下载头像 {steam_id}: {avatar_url}")
-    avatar = await _fetch_avatar(avatar_url, proxy)
+    avatar, downloaded = await _fetch_avatar(avatar_url, proxy)
 
     # 保存缓存
     try:
-        avatar_dir.mkdir(parents=True, exist_ok=True)
-        avatar.save(cache_path)
-        logger.debug(f"头像已缓存: {cache_path}")
+        if downloaded:
+            avatar_dir.mkdir(parents=True, exist_ok=True)
+            avatar.save(cache_path)
+            logger.debug(f"头像已缓存: {cache_path}")
+        elif cache_path.exists():
+            try:
+                cache_path.unlink()
+            except Exception:
+                pass
     except Exception as e:
         logger.warning(f"保存头像缓存失败 {cache_path}: {e}")
 

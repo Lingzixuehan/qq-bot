@@ -29,12 +29,44 @@ class BindData:
         with open(self._save_path, "w", encoding="utf-8") as f:
             json.dump(self.content, f, indent=4, ensure_ascii=False)
 
-    def add(self, parent_id: str, content: Dict[str, str]) -> None:
-        """添加绑定"""
+    def add(self, parent_id: str, content: Dict[str, str]) -> bool:
+        """添加或更新绑定，返回是否发生变化"""
+        user_id = content.get("user_id")
+        steam_id = content.get("steam_id")
+        nickname = content.get("nickname") if "nickname" in content else None
+
+        if not user_id or not steam_id:
+            return False
+
         if parent_id not in self.content:
-            self.content[parent_id] = [content]
-        else:
-            self.content[parent_id].append(content)
+            self.content[parent_id] = []
+
+        # 维护唯一性：更新已有记录，必要时保留旧昵称
+        for idx, data in enumerate(self.content[parent_id]):
+            if data["user_id"] == user_id:
+                # 如果新数据没有昵称，则沿用原昵称
+                if nickname is None:
+                    nickname = data.get("nickname")
+
+                # 如果内容未发生改变，直接返回
+                if data.get("steam_id") == steam_id and data.get("nickname") == nickname:
+                    return False
+
+                self.content[parent_id][idx] = {
+                    "user_id": user_id,
+                    "steam_id": steam_id,
+                    "nickname": nickname,
+                }
+                return True
+
+        self.content[parent_id].append(
+            {
+                "user_id": user_id,
+                "steam_id": steam_id,
+                "nickname": nickname,
+            }
+        )
+        return True
 
     def remove(self, parent_id: str, user_id: str) -> None:
         """移除绑定"""

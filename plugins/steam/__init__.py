@@ -604,16 +604,11 @@ async def handle_bind_steam(bot: Bot, event: MessageEvent, args: Message = Comma
     bind_info = {
         "user_id": user_id,
         "steam_id": steam_id,
-        "nickname": None  # 默认无昵称
+        "nickname": None,  # 默认无昵称
     }
 
-    # 检查是否已存在绑定
-    existing = bind_data.get(parent_id, user_id)
-    if existing:
-        bind_data.remove(parent_id, user_id)
-
-    bind_data.add(parent_id, bind_info)
-    bind_data.save()
+    if bind_data.add(parent_id, bind_info):
+        bind_data.save()
 
     await bind_steam.finish(
         f"✅ 绑定成功！\n\n"
@@ -876,7 +871,7 @@ steam_spy = on_command("steam视奸", aliases={"视奸", "steam好友", "查看�
 
 
 @steam_spy.handle()
-async def handle_steam_spy(event: MessageEvent):
+async def handle_steam_spy(bot: Bot, event: MessageEvent):
     """查看所有绑定用户的Steam状态"""
     if not steam_api:
         await steam_spy.finish("❌ Steam功能未配置")
@@ -887,13 +882,67 @@ async def handle_steam_spy(event: MessageEvent):
     else:
         parent_id = str(event.user_id)
 
-    # 获取该群组的所有绑定Steam ID
-    steam_ids = bind_data.get_all(parent_id)
+    # 获取现有绑定信息
+    parent_bindings = bind_data.content.get(parent_id, [])
+    steam_ids: List[str] = []
+    steam_id_set = set()
+    nickname_map: Dict[str, Optional[str]] = {}
+    for record in parent_bindings:
+        steam_id = record.get("steam_id")
+        if not steam_id:
+            continue
+        steam_ids.append(steam_id)
+        steam_id_set.add(steam_id)
+        if record.get("nickname"):
+            nickname_map[steam_id] = record.get("nickname")
 
-    # 如果新数据结构为空，尝试从旧数据库获取
-    if not steam_ids:
-        bindings = await SteamDB.get_all_bindings()
-        steam_ids = [binding["steam_id"] for binding in bindings]
+    # 需要同步的QQ用户列表（当前群成员 or 私聊对象）
+    user_ids_to_sync: List[str] = []
+    if isinstance(event, GroupMessageEvent):
+        try:
+            members = await bot.get_group_member_list(group_id=event.group_id)
+            user_ids_to_sync = [str(m["user_id"]) for m in members]
+        except Exception as exc:
+            logger.warning(f"获取群成员列表失败: {exc}")
+            user_ids_to_sync = []
+    else:
+        user_ids_to_sync = [str(event.user_id)]
+
+    # 始终确保触发指令的用户也在同步列表中
+    trigger_user = str(event.user_id)
+    if trigger_user not in user_ids_to_sync:
+        user_ids_to_sync.append(trigger_user)
+
+    unique_user_ids = list(dict.fromkeys(user_ids_to_sync))
+
+    # 从数据库补齐绑定信息，避免旧数据缺失
+    bind_changed = False
+    bindings_map = await SteamDB.get_bindings_by_users(unique_user_ids)
+    for user_id, binding in bindings_map.items():
+        steam_id = binding.get("steam_id")
+        if not steam_id:
+            continue
+        if steam_id not in steam_id_set:
+            steam_ids.append(steam_id)
+            steam_id_set.add(steam_id)
+
+        existing = bind_data.get(parent_id, user_id)
+        nickname = existing.get("nickname") if existing else None
+        if nickname:
+            nickname_map[steam_id] = nickname
+
+        if bind_data.add(
+            parent_id,
+            {
+                "user_id": user_id,
+                "steam_id": steam_id,
+                "nickname": nickname,
+            },
+        ):
+            bind_changed = True
+
+    if bind_changed:
+        bind_data.save()
 
     if not steam_ids:
         await steam_spy.finish("❌ 还没有人绑定Steam账号")
@@ -949,13 +998,15 @@ async def handle_steam_spy(event: MessageEvent):
         else:
             status = "在线"
 
-        steam_data.append({
-            "avatar": avatar,
-            "name": player.get("personaname", "Unknown"),
-            "status": status,
-            "personastate": personastate,
-            "nickname": None,  # 可以从 bind_data 获取
-        })
+        steam_data.append(
+            {
+                "avatar": avatar,
+                "name": player.get("personaname", "Unknown"),
+                "status": status,
+                "personastate": personastate,
+                "nickname": nickname_map.get(steam_id),
+            }
+        )
 
     # 获取群头像作为 "parent"（头部显示）
     if isinstance(event, GroupMessageEvent):
@@ -1027,9 +1078,8 @@ async def handle_steam_nickname(event: MessageEvent, args: Message = CommandArg(
 
     # 更新昵称
     bind_info["nickname"] = nickname
-    bind_data.remove(parent_id, user_id)
-    bind_data.add(parent_id, bind_info)
-    bind_data.save()
+    if bind_data.add(parent_id, bind_info):
+        bind_data.save()
 
     await steam_nickname.finish(f"✅ 已设置Steam显示昵称为：{nickname}")
 
