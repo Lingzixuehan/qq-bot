@@ -2438,6 +2438,63 @@ def draw_price_history(
         if prev_x is not None and prev_y is not None and prev_x < chart_right - 10:
             draw.line([(prev_x, prev_y), (chart_right, prev_y)], fill=color, width=3)
 
+    # 找出史低价格和对应时间
+    historical_low_price = min(all_prices)
+    historical_low_info = None
+    for dt, x, price, shop in all_time_points:
+        if price == historical_low_price:
+            historical_low_info = (dt, x, price, shop)
+            break
+
+    # 绘制史低参考线和标注
+    if historical_low_info:
+        low_dt, low_x, low_price, low_shop = historical_low_info
+        low_y = price_to_y(low_price)
+
+        # 绘制史低水平虚线
+        dash_length = 8
+        gap_length = 4
+        low_line_color = (255, 100, 100, 200)  # 红色
+        x_pos = chart_left
+        while x_pos < chart_right:
+            end_x = min(x_pos + dash_length, chart_right)
+            draw.line([(x_pos, low_y), (end_x, low_y)], fill=low_line_color, width=2)
+            x_pos += dash_length + gap_length
+
+        # 史低价格标签（左侧）
+        low_label_font = get_font(12, "bold")
+        draw.text((chart_left - 8, low_y), f"¥{low_price:.0f}", font=low_label_font, fill=(255, 100, 100, 255), anchor="rm")
+
+        # 史低标注框（右上角显著位置）
+        low_box_font = get_font(16, "bold")
+        low_date_font = get_font(12, "regular")
+        low_text = f"史低: ¥{low_price:.2f}"
+        low_date_text = f"{low_dt.strftime('%Y-%m-%d')} @ {low_shop}"
+
+        # 计算标注框位置和大小
+        text_w = draw.textlength(low_text, font=low_box_font)
+        date_w = draw.textlength(low_date_text, font=low_date_font)
+        box_w = max(text_w, date_w) + 24
+        box_h = 52
+        box_x = chart_right - box_w - 10
+        box_y = chart_top + 10
+
+        # 绘制史低标注框背景
+        draw.rounded_rectangle(
+            [box_x, box_y, box_x + box_w, box_y + box_h],
+            radius=8,
+            fill=(60, 30, 30, 230),
+            outline=(255, 100, 100, 255),
+            width=2
+        )
+
+        # 绘制史低文字
+        draw.text((box_x + 12, box_y + 8), low_text, font=low_box_font, fill=(255, 120, 120, 255))
+        draw.text((box_x + 12, box_y + 30), low_date_text, font=low_date_font, fill=(200, 180, 180, 255))
+
+        # 在史低点绘制特殊标记
+        draw.ellipse([low_x - 8, low_y - 8, low_x + 8, low_y + 8], fill=(255, 100, 100, 255), outline=(255, 255, 255, 255), width=2)
+
     # 绘制X轴时间标签（选择关键时间点）
     all_time_points.sort(key=lambda x: x[0])
 
