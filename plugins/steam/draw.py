@@ -2671,7 +2671,7 @@ def draw_game_search_results(
             draw.text((padding + 55, y_offset + 12), game_title, font=name_font, fill=(240, 240, 245, 255))
 
             # 类型标签
-            game_type = result.get("type", "game")
+            game_type = result.get("type") or "game"
             type_color = type_colors.get(game_type, (150, 150, 160, 255))
             type_text = game_type.upper()
             type_w = draw.textlength(type_text, font=info_font)

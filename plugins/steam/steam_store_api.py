@@ -1108,7 +1108,7 @@ class SteamStoreAPI:
                 return results
 
         except Exception as e:
-            logger.error(f"ITAD搜索失败: {e}", exc_info=True)
+            logger.error(f"ITAD搜索失败: {type(e).__name__}: {e}", exc_info=True)
             return []
 
     async def get_itad_deals(
