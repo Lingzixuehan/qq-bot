@@ -7,6 +7,34 @@ from PIL import Image
 from pathlib import Path
 from typing import Dict, Optional, Any
 from datetime import datetime, timezone, timedelta
+from nonebot.log import logger
+
+
+async def fetch_qq_group_avatar(group_id: str, size: int = 640) -> Image.Image:
+    """
+    获取QQ群头像
+
+    Args:
+        group_id: QQ群号
+        size: 头像尺寸 (100, 640等)
+
+    Returns:
+        PIL Image对象，失败时返回默认头像
+    """
+    avatar_url = f"http://p.qlogo.cn/gh/{group_id}/{group_id}/{size}"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(avatar_url)
+            response.raise_for_status()
+            return Image.open(BytesIO(response.content))
+    except Exception as e:
+        logger.warning(f"获取QQ群头像失败 {group_id}: {e}")
+        # 返回默认头像
+        default_avatar_path = Path(__file__).parent / "res/unknown_avatar.jpg"
+        if default_avatar_path.exists():
+            return Image.open(default_avatar_path)
+        # 如果默认头像也不存在，创建一个灰色占位图
+        return Image.new("RGB", (size, size), (100, 100, 100))
 
 
 async def _fetch_avatar(avatar_url: str, proxy: Optional[str] = None) -> Image.Image:
@@ -22,13 +50,18 @@ async def _fetch_avatar(avatar_url: str, proxy: Optional[str] = None) -> Image.I
     """
     try:
         async with httpx.AsyncClient(proxies=proxy, timeout=30.0) as client:
+            logger.debug(f"正在获取头像: {avatar_url}")
             response = await client.get(avatar_url)
             response.raise_for_status()
             return Image.open(BytesIO(response.content))
-    except Exception:
+    except Exception as e:
+        logger.warning(f"获取头像失败 {avatar_url}: {e}")
         # 返回默认头像
         default_avatar_path = Path(__file__).parent / "res/unknown_avatar.jpg"
-        return Image.open(default_avatar_path)
+        if default_avatar_path.exists():
+            return Image.open(default_avatar_path)
+        # 如果默认头像也不存在，创建一个灰色占位图
+        return Image.new("RGB", (100, 100), (100, 100, 100))
 
 
 async def fetch_avatar(
@@ -49,29 +82,40 @@ async def fetch_avatar(
     """
     steam_id = player.get("steamid", "")
     avatar_hash = player.get("avatarhash", "")
-    cache_path = avatar_dir / f"{steam_id}_{avatar_hash}.png"
+
+    # 如果有avatar_hash，使用它作为缓存key
+    if avatar_hash:
+        cache_path = avatar_dir / f"{steam_id}_{avatar_hash}.png"
+    else:
+        cache_path = avatar_dir / f"{steam_id}.png"
 
     # 检查缓存
     if cache_path.exists():
         try:
+            logger.debug(f"使用缓存头像: {cache_path}")
             return Image.open(cache_path)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"读取缓存头像失败 {cache_path}: {e}")
 
     # 下载头像
     avatar_url = player.get("avatarfull") or player.get("avatarmedium") or player.get("avatar", "")
     if not avatar_url:
+        logger.warning(f"玩家 {steam_id} 没有头像URL，使用默认头像")
         default_avatar_path = Path(__file__).parent / "res/unknown_avatar.jpg"
-        return Image.open(default_avatar_path)
+        if default_avatar_path.exists():
+            return Image.open(default_avatar_path)
+        return Image.new("RGB", (100, 100), (100, 100, 100))
 
+    logger.debug(f"下载头像 {steam_id}: {avatar_url}")
     avatar = await _fetch_avatar(avatar_url, proxy)
 
     # 保存缓存
     try:
         avatar_dir.mkdir(parents=True, exist_ok=True)
         avatar.save(cache_path)
-    except Exception:
-        pass
+        logger.debug(f"头像已缓存: {cache_path}")
+    except Exception as e:
+        logger.warning(f"保存头像缓存失败 {cache_path}: {e}")
 
     return avatar
 

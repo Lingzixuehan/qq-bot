@@ -51,7 +51,7 @@ from common.steam_api import SteamAPI, format_playtime, get_player_state_text
 # 导入新模块
 from .data_source import BindData, SteamInfoData, ParentData, DisableParentData, SubscriptionData
 from .draw import draw_friends_status, draw_friends_status_steam, draw_start_gaming, draw_game_list_with_tags, draw_game_price_info
-from .utils import fetch_avatar, convert_player_name_to_nickname
+from .utils import fetch_avatar, fetch_qq_group_avatar, convert_player_name_to_nickname
 from .models import Player, ProcessedPlayer
 from .steam_store_api import SteamStoreAPI
 
@@ -957,13 +957,22 @@ async def handle_steam_spy(event: MessageEvent):
             "nickname": None,  # 可以从 bind_data 获取
         })
 
-    # 获取第一个用户作为 "parent"（头部显示）
-    if steam_data:
-        parent_avatar = steam_data[0]["avatar"]
-        parent_name = f"Steam 好友 ({len(steam_data)}人)"
+    # 获取群头像作为 "parent"（头部显示）
+    if isinstance(event, GroupMessageEvent):
+        try:
+            parent_avatar = await fetch_qq_group_avatar(str(event.group_id), 640)
+            parent_name = f"Steam 好友 ({len(steam_data)}人)"
+        except Exception as e:
+            logger.warning(f"获取群头像失败: {e}")
+            parent_avatar = Image.new("RGB", (72, 72), (100, 100, 100))
+            parent_name = f"Steam 好友 ({len(steam_data)}人)"
     else:
-        parent_avatar = Image.new("RGB", (72, 72), (100, 100, 100))
-        parent_name = "Steam 好友"
+        # 私聊场景，使用默认头像或第一个用户头像
+        if steam_data:
+            parent_avatar = steam_data[0]["avatar"]
+        else:
+            parent_avatar = Image.new("RGB", (72, 72), (100, 100, 100))
+        parent_name = f"Steam 好友 ({len(steam_data)}人)"
 
     # 使用 Steam 风格函数生成图片
     try:
