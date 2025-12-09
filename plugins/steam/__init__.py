@@ -561,14 +561,15 @@ async def handle_bind_steam(bot: Bot, event: MessageEvent, args: Message = Comma
     steam_input = args.extract_plain_text().strip()
     if not steam_input:
         await bind_steam.finish(
-            "用法：/绑定steam <Steam ID或个性化URL>\n\n"
+            "用法：/绑定steam <Steam64 / 好友码 / 个性化URL>\n\n"
             "示例：\n"
-            "/绑定steam 76561198012345678 (Steam ID)\n"
+            "/绑定steam 76561198012345678 (Steam64)\n"
+            "/绑定steam 123-456-789 (好友码)\n"
             "/绑定steam gaben (个性化URL)\n\n"
             "💡 获取Steam ID方法：\n"
             "1. 访问 https://steamcommunity.com/my/\n"
-            "2. 地址栏中的数字就是你的Steam ID\n"
-            "3. 或者使用个性化URL（设置 > 编辑个人资料）"
+            "2. 地址栏中的数字就是你的Steam64\n"
+            "3. 或者使用好友码（8-12位数字，可带连字符）或个性化URL"
         )
 
     user_id = str(event.user_id)
@@ -580,15 +581,29 @@ async def handle_bind_steam(bot: Bot, event: MessageEvent, args: Message = Comma
         parent_id = user_id  # 私聊使用用户ID作为parent_id
 
     # 尝试解析Steam ID
-    steam_id = steam_input
+    steam_id = None
+    input_clean = steam_input.strip()
 
-    # 如果不是纯数字，尝试作为个性化URL解析
-    if not steam_input.isdigit():
-        resolved_id = await steam_api.resolve_vanity_url(steam_input)
+    # 17位纯数字 Steam64
+    if input_clean.isdigit() and len(input_clean) >= 16:
+        steam_id = input_clean
+
+    # 好友码（允许连字符/空格，通常 3-3-3 或 9/12 位数字）
+    if not steam_id:
+        friend_code_raw = input_clean.replace("-", "").replace(" ", "")
+        if friend_code_raw.isdigit() and 8 <= len(friend_code_raw) <= 12:
+            resolved_friend = await steam_api.resolve_friend_code(friend_code_raw)
+            if resolved_friend:
+                steam_id = resolved_friend
+
+    # 个性化URL
+    if not steam_id:
+        resolved_id = await steam_api.resolve_vanity_url(input_clean)
         if resolved_id:
             steam_id = resolved_id
-        else:
-            await bind_steam.finish("❌ 无法解析该Steam ID或个性化URL，请检查后重试")
+
+    if not steam_id:
+        await bind_steam.finish("❌ 无法解析该Steam ID/好友码/个性化URL，请检查后重试")
 
     # 验证Steam ID并获取用户信息
     player_info = await steam_api.get_player_summaries(steam_id)
