@@ -2,15 +2,17 @@
 Steam图片渲染模块
 
 提供Steam好友列表和玩家状态的可视化渲染功能
+仿照 Steam 好友列表样式和个人主页渲染
 """
 import colorsys
 import random
 from io import BytesIO
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any, Union
+from colorsys import rgb_to_hsv, hsv_to_rgb
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
 
 # 资源目录
 RES_DIR = Path(__file__).parent / "res"
@@ -22,6 +24,20 @@ FONT_PATHS = {
     "light": str(REPO_ROOT / "fonts" / "MiSans-Light.ttf"),
     "bold": str(REPO_ROOT / "fonts" / "MiSans-Bold.ttf"),
 }
+
+# Steam 好友列表样式常量
+WIDTH = 400
+PARENT_AVATAR_SIZE = 72
+MEMBER_AVATAR_SIZE = 50
+
+# 资源路径
+unknown_avatar_path = RES_DIR / "unknown_avatar.jpg"
+parent_status_path = RES_DIR / "parent_status.png"
+friends_search_path = RES_DIR / "friends_search.png"
+busy_path = RES_DIR / "busy.png"
+zzz_online_path = RES_DIR / "zzz_online.png"
+zzz_gaming_path = RES_DIR / "zzz_gaming.png"
+gaming_path = RES_DIR / "gaming.png"
 
 # 字体大小常量
 FONT_SIZE_TITLE = 48
@@ -38,6 +54,21 @@ STATUS_COLORS = {
     "online": (87, 166, 214),   # 蓝色 - 在线
     "offline": (128, 128, 128), # 灰色 - 离线
     "busy": (200, 100, 100),    # 红色 - 忙碌
+}
+
+# Steam 状态颜色映射 (personastate -> (主色, 副色))
+def hex_to_rgb(hex_color: str) -> Tuple[int, int, int]:
+    """十六进制颜色转RGB"""
+    return tuple(int(hex_color[i : i + 2], 16) for i in (0, 2, 4))
+
+personastate_colors = {
+    0: (hex_to_rgb("969697"), hex_to_rgb("656565")),      # 离线 - 灰色
+    1: (hex_to_rgb("6dcef5"), hex_to_rgb("4c91ac")),      # 在线 - 蓝色
+    2: (hex_to_rgb("6dcef5"), hex_to_rgb("4c91ac")),      # 忙碌 - 蓝色
+    3: (hex_to_rgb("45778e"), hex_to_rgb("365969")),      # 离开 - 深蓝
+    4: (hex_to_rgb("6dcef5"), hex_to_rgb("4c91ac")),      # 打盹 - 蓝色
+    5: (hex_to_rgb("6dcef5"), hex_to_rgb("4c91ac")),      # 查看招聘信息 - 蓝色
+    6: (hex_to_rgb("6dcef5"), hex_to_rgb("4c91ac")),      # 拥有物品待出售 - 蓝色
 }
 
 # 在线状态映射
@@ -430,7 +461,681 @@ def random_color_offset(
     return (r, g, b)
 
 
-# ==================== 核心绘制函数 ====================
+# ==================== Steam 风格好友列表渲染函数 ====================
+
+
+def draw_start_gaming(
+    avatar: Image.Image, friend_name: str, game_name: str, nickname: str = None
+) -> Image.Image:
+    """绘制开始游戏通知（Steam 风格）"""
+    canvas = Image.open(gaming_path)
+    canvas.paste(avatar.resize((66, 66), Image.BICUBIC), (15, 20))
+
+    draw = ImageDraw.Draw(canvas)
+    font_regular = ImageFont.truetype(FONT_PATHS["regular"], 19)
+    font_bold = ImageFont.truetype(FONT_PATHS["bold"], 14)
+
+    # 绘制名称
+    draw.text(
+        (104, 14),
+        f"{friend_name} ({nickname})" if nickname is not None else friend_name,
+        font=font_regular,
+        fill=hex_to_rgb("e3ffc2"),
+    )
+
+    # 绘制"正在玩"
+    draw.text(
+        (103, 42),
+        "正在玩",
+        font=ImageFont.truetype(FONT_PATHS["regular"], 17),
+        fill=hex_to_rgb("969696"),
+    )
+
+    # 绘制游戏名称
+    draw.text(
+        (104, 66),
+        game_name,
+        font=font_bold,
+        fill=hex_to_rgb("91c257"),
+    )
+
+    return canvas
+
+
+def draw_parent_status(parent_avatar: Image.Image, parent_name: str) -> Image.Image:
+    """绘制群组头部状态（Steam 风格）"""
+    parent_avatar = parent_avatar.resize(
+        (PARENT_AVATAR_SIZE, PARENT_AVATAR_SIZE), Image.BICUBIC
+    )
+
+    canvas = Image.open(parent_status_path).resize((WIDTH, 120), Image.BICUBIC)
+
+    draw = ImageDraw.Draw(canvas)
+    font_bold = ImageFont.truetype(FONT_PATHS["bold"], 20)
+    font_light = ImageFont.truetype(FONT_PATHS["light"], 18)
+
+    # 在左下角 (16, 16) 处绘制头像
+    avatar_height = 120 - 16 - PARENT_AVATAR_SIZE
+    canvas.paste(parent_avatar, (16, avatar_height))
+
+    # 绘制名称
+    draw.text(
+        (16 + PARENT_AVATAR_SIZE + 16, avatar_height + 12),
+        parent_name,
+        font=font_bold,
+        fill=hex_to_rgb("6dcff6"),
+    )
+
+    # 绘制状态
+    draw.text(
+        (16 + PARENT_AVATAR_SIZE + 16, avatar_height + 20 + 16),
+        "在线",
+        font=font_light,
+        fill=hex_to_rgb("4c91ac"),
+    )
+
+    return canvas
+
+
+def draw_friends_search() -> Image.Image:
+    """绘制好友搜索栏（Steam 风格）"""
+    canvas = Image.new("RGB", (WIDTH, 50), hex_to_rgb("434953"))
+
+    friends_search = Image.open(friends_search_path)
+
+    canvas.paste(friends_search, (WIDTH - friends_search.width, 0))
+
+    draw = ImageDraw.Draw(canvas)
+    font_regular = ImageFont.truetype(FONT_PATHS["regular"], 20)
+
+    draw.text(
+        (24, 10),
+        "好友",
+        hex_to_rgb("b7ccd5"),
+        font=font_regular,
+    )
+
+    return canvas
+
+
+def draw_friend_status_steam(
+    friend_avatar: Image.Image,
+    friend_name: str,
+    status: str,
+    personastate: int,
+    nickname: str = None,
+) -> Image.Image:
+    """
+    绘制单个好友状态项（Steam 风格）
+
+    Args:
+        friend_avatar: 好友头像
+        friend_name: 好友名字
+        status: 状态文本（在线/游戏名/离线等）
+        personastate: 状态代码
+        nickname: 昵称（可选）
+    """
+    friend_avatar = friend_avatar.resize(
+        (MEMBER_AVATAR_SIZE, MEMBER_AVATAR_SIZE), Image.BICUBIC
+    )
+
+    canvas = Image.new("RGB", (WIDTH, 64), hex_to_rgb("1e2024"))
+
+    draw = ImageDraw.Draw(canvas)
+    font_bold = ImageFont.truetype(FONT_PATHS["bold"], 20)
+    font_regular = ImageFont.truetype(FONT_PATHS["regular"], 18)
+
+    display_name = (
+        f"{friend_name} ({nickname})" if nickname is not None else friend_name
+    )
+
+    if personastate == 2:
+        # 忙碌 加上一个忙碌图标
+        canvas = draw_friend_status_steam(friend_avatar, friend_name, status, 1, nickname)
+        draw = ImageDraw.Draw(canvas)
+
+        busy = Image.open(busy_path)
+
+        name_width = int(
+            draw.textlength(display_name, font=font_bold)
+        )
+
+        canvas.paste(busy, (22 + MEMBER_AVATAR_SIZE + 16 + name_width + 4, 18))
+
+        return canvas
+
+    if personastate == 4:
+        # 打盹 加上一个 ZZZ
+        canvas = draw_friend_status_steam(friend_avatar, friend_name, status, 1, nickname)
+        draw = ImageDraw.Draw(canvas)
+
+        zzz = Image.open(zzz_online_path if status == "在线" else zzz_gaming_path)
+
+        name_width = int(
+            draw.textlength(display_name, font=font_bold)
+        )
+
+        canvas.paste(zzz, (22 + MEMBER_AVATAR_SIZE + 16 + name_width + 8, 18))
+
+        return canvas
+
+    # 绘制头像
+    canvas.paste(friend_avatar, (22, 8))
+
+    if status != "在线" and personastate == 1:
+        fill = (hex_to_rgb("e3ffc2"), hex_to_rgb("8ebe56"))
+    elif status != "离开" and personastate == 3:
+        fill = (hex_to_rgb("e3ffc2"), hex_to_rgb("8ebe56"))
+    else:
+        fill = personastate_colors.get(personastate, personastate_colors[0])
+
+    # 绘制名称
+    draw.text(
+        (22 + MEMBER_AVATAR_SIZE + 18, 12),
+        display_name,
+        font=font_bold,
+        fill=fill[0],
+    )
+
+    # 绘制状态
+    draw.text(
+        (22 + MEMBER_AVATAR_SIZE + 16, 36),
+        status,
+        font=font_regular,
+        fill=fill[1],
+    )
+
+    return canvas
+
+
+def draw_gaming_friends_status_steam(data: List[Dict[str, Any]]) -> Image.Image:
+    """绘制游戏中好友列表（Steam 风格）"""
+    # 排序数据，按照游戏名称字母表顺序排序
+    data.sort(key=lambda x: x.get("status", ""))
+
+    canvas = Image.new(
+        "RGB",
+        (WIDTH, 64 + (MEMBER_AVATAR_SIZE + 16) * len(data) + 16),
+        hex_to_rgb("1e2024"),
+    )
+
+    draw = ImageDraw.Draw(canvas)
+    font_regular = ImageFont.truetype(FONT_PATHS["regular"], 22)
+
+    # 绘制标题
+    draw.text(
+        (22, 22),
+        "游戏中",
+        hex_to_rgb("c5d6d4"),
+        font=font_regular,
+    )
+
+    # 绘制好友头像和名称
+    friends_status_list = [
+        draw_friend_status_steam(
+            d["avatar"], d["name"], d["status"], d["personastate"], d.get("nickname")
+        )
+        for d in data
+    ]
+
+    # 拼接好友头像和名称
+    for i, friend_status in enumerate(friends_status_list):
+        canvas.paste(friend_status, (0, 64 + (MEMBER_AVATAR_SIZE + 16) * i))
+
+    return canvas
+
+
+def draw_online_friends_status_steam(data: List[Dict[str, Any]]) -> Image.Image:
+    """绘制在线好友列表（Steam 风格）"""
+    canvas = Image.new(
+        "RGB",
+        (WIDTH, 64 + (MEMBER_AVATAR_SIZE + 16) * len(data) + 16),
+        hex_to_rgb("1e2024"),
+    )
+
+    draw = ImageDraw.Draw(canvas)
+    font_regular = ImageFont.truetype(FONT_PATHS["regular"], 22)
+    font_small = ImageFont.truetype(FONT_PATHS["regular"], 18)
+
+    # 绘制标题
+    draw.text(
+        (22, 22),
+        "在线好友",
+        hex_to_rgb("c5d6d4"),
+        font=font_regular,
+    )
+
+    # 绘制在线人数
+    draw.text(
+        (115, 25),
+        f"({len(data)})",
+        hex_to_rgb("67665c"),
+        font=font_small,
+    )
+
+    # 绘制好友头像和名称
+    friends_status_list = [
+        draw_friend_status_steam(
+            d["avatar"], d["name"], d["status"], d["personastate"], d.get("nickname")
+        )
+        for d in data
+    ]
+
+    # 拼接好友头像和名称
+    for i, friend_status in enumerate(friends_status_list):
+        canvas.paste(friend_status, (0, 64 + (MEMBER_AVATAR_SIZE + 16) * i))
+
+    return canvas
+
+
+def draw_offline_friends_status_steam(data: List[Dict[str, Any]]) -> Image.Image:
+    """绘制离线好友列表（Steam 风格）"""
+    canvas = Image.new(
+        "RGB",
+        (WIDTH, 64 + (MEMBER_AVATAR_SIZE + 16) * len(data) + 16),
+        hex_to_rgb("1e2024"),
+    )
+
+    draw = ImageDraw.Draw(canvas)
+    font_regular = ImageFont.truetype(FONT_PATHS["regular"], 22)
+    font_small = ImageFont.truetype(FONT_PATHS["regular"], 18)
+
+    # 绘制标题
+    draw.text(
+        (22, 22),
+        "离线",
+        hex_to_rgb("c5d6d4"),
+        font=font_regular,
+    )
+
+    # 绘制离线人数
+    draw.text(
+        (72, 25),
+        f"({len(data)})",
+        hex_to_rgb("67665c"),
+        font=font_small,
+    )
+
+    # 绘制好友头像和名称
+    friends_status_list = [
+        draw_friend_status_steam(
+            d["avatar"], d["name"], d["status"], d["personastate"], d.get("nickname")
+        )
+        for d in data
+    ]
+
+    # 拼接好友头像和名称
+    for i, friend_status in enumerate(friends_status_list):
+        canvas.paste(friend_status, (0, 64 + (MEMBER_AVATAR_SIZE + 16) * i))
+
+    return canvas
+
+
+def draw_friends_status_steam(
+    parent_avatar: Image.Image, parent_name: str, data: List[Dict[str, Any]]
+) -> Image.Image:
+    """
+    绘制完整好友列表（Steam 风格）
+
+    Args:
+        parent_avatar: 群主/自己的头像
+        parent_name: 群主/自己的名字
+        data: 好友数据列表，每个包含 {avatar, name, status, personastate, nickname}
+    """
+    data.sort(key=lambda x: x.get("personastate", 0))
+
+    parent_status = draw_parent_status(parent_avatar, parent_name)
+    friends_search = draw_friends_search()
+
+    status_images: List[Image.Image] = []
+    height = parent_status.height + friends_search.height
+
+    gaming_data = [
+        d
+        for d in data
+        if (d.get("personastate") == 1 and d.get("status") != "在线")
+        or (d.get("personastate") == 3 and d.get("status") != "离开")
+        or (d.get("personastate") == 4 and d.get("status") != "在线")
+    ]
+
+    if gaming_data:
+        status_images.append(draw_gaming_friends_status_steam(gaming_data))
+        height += status_images[-1].height
+
+    online_data = [
+        d
+        for d in data
+        if (d.get("personastate") == 1 and d.get("status") == "在线")
+        or (d.get("personastate") == 3 and d.get("status") == "离开")
+        or (d.get("personastate") == 4 and d.get("status") == "在线")
+        or (d.get("personastate") in [2, 5, 6])
+    ]
+    # 按 1, 2, 4, 5, 6, 3 的顺序排序
+    online_data.sort(key=lambda x: (7 if x.get("personastate") == 3 else x.get("personastate", 0)))
+
+    if online_data:
+        status_images.append(draw_online_friends_status_steam(online_data))
+        height += status_images[-1].height
+
+    offline_data = [d for d in data if d.get("personastate") == 0]
+    if offline_data:
+        status_images.append(draw_offline_friends_status_steam(offline_data))
+        height += status_images[-1].height
+
+    # 拼合图片
+    canvas = Image.new("RGB", (WIDTH, height), hex_to_rgb("1e2024"))
+    draw = ImageDraw.Draw(canvas)
+
+    canvas.paste(parent_status, (0, 0))
+    canvas.paste(friends_search, (0, parent_status.height))
+
+    y = parent_status.height + friends_search.height
+
+    for i, status_image in enumerate(status_images):
+        canvas.paste(status_image, (0, y))
+        y += status_image.height
+
+        # 绘制分割线
+        if i != len(status_images) - 1:
+            draw.rectangle([0, y - 1, WIDTH, y], fill=hex_to_rgb("333439"))
+
+    return canvas
+
+
+# ==================== Steam 风格个人主页渲染函数 ====================
+
+
+def draw_game_info_steam(
+    header: Image.Image,
+    game_name: str,
+    game_time: str,
+    last_play_time: str,
+    achievements: List[Dict[str, Any]],
+    completed_achievement_number: int,
+    total_achievement_number: int,
+    achievement_color: Tuple[int, int, int],
+) -> Image.Image:
+    """绘制游戏信息卡片（Steam 风格）"""
+    bg = Image.new("RGBA", (880, 110 + 64 + 10), (0, 0, 0, 110))
+    header = header.resize((229, 86), Image.BICUBIC)
+    bg.paste(header, (10, 110 // 2 - header.height // 2))
+
+    draw = ImageDraw.Draw(bg)
+    font_regular = ImageFont.truetype(FONT_PATHS["regular"], 26)
+    font_light = ImageFont.truetype(FONT_PATHS["light"], 22)
+
+    # 画游戏名
+    draw.text(
+        (260, 10),
+        game_name,
+        font=font_regular,
+        fill=(255, 255, 255),
+    )
+
+    # 画最后游玩时间
+    display_text = last_play_time
+    draw.text(
+        (int(bg.width - font_light.getlength(display_text)) - 10, 75),
+        display_text,
+        font=font_light,
+        fill=(150, 150, 150),
+    )
+
+    # 画游戏时间
+    display_text = f"总时数 {game_time}"
+    draw.text(
+        (int(bg.width - font_light.getlength(display_text)) - 10, 50),
+        display_text,
+        font=font_light,
+        fill=(150, 150, 150),
+    )
+
+    if completed_achievement_number is None or total_achievement_number is None:
+        return bg.crop((0, 0, bg.width, 110))
+
+    # 画成就背景
+    achievement_bg = Image.new("RGBA", (860, 64), achievement_color)
+    draw_achievement = ImageDraw.Draw(achievement_bg)
+
+    # 画成就进度
+    font_small = ImageFont.truetype(FONT_PATHS["light"], 18)
+    x = 14
+    draw_achievement.text(
+        (x, 20),
+        "成就进度",
+        font=font_small,
+        fill=(255, 255, 255, 255),
+    )
+    x += font_small.getlength("成就进度") + 10
+    draw_achievement.text(
+        (int(x), 20),
+        f"{completed_achievement_number} / {total_achievement_number}",
+        font=font_small,
+        fill=(130, 130, 130),
+    )
+    x += (
+        font_small.getlength(f"{completed_achievement_number} / {total_achievement_number}")
+        + 10
+    )
+
+    # 绘制进度条
+    if total_achievement_number > 0:
+        progress_bar = create_progress_bar(
+            completed_achievement_number / total_achievement_number, achievement_color
+        )
+        achievement_bg.paste(progress_bar, (int(x), 24), progress_bar)
+
+    # 画成就图标
+    x = 860 - 48 * 6 - 10 * 6
+    for achievement in achievements[:6]:
+        if "image" in achievement:
+            try:
+                achievement_image = Image.open(BytesIO(achievement["image"])).resize((48, 48))
+                achievement_bg.paste(achievement_image, (x, 8))
+            except Exception:
+                pass
+        x += 48 + 10
+
+    if completed_achievement_number > 6:
+        font_num = ImageFont.truetype(FONT_PATHS["regular"], 22)
+        display_text = f"+{completed_achievement_number - 5}"
+        draw_achievement.rectangle((x, 8, x + 48, 56), fill=(34, 34, 34))
+        draw_achievement.text(
+            (x + 24 - font_num.getlength(display_text) // 2, 18),
+            display_text,
+            font=font_num,
+            fill=(255, 255, 255),
+        )
+
+    bg.paste(achievement_bg, (10, 110), achievement_bg)
+    return bg
+
+
+def draw_player_status_steam(
+    player_bg: Union[Image.Image, bytes],
+    player_avatar: Union[Image.Image, bytes],
+    player_name: str,
+    player_id: str,
+    player_description: str,
+    player_last_two_weeks_time: str,
+    player_games: List[Dict[str, Any]],
+) -> Image.Image:
+    """
+    绘制个人 Steam 主页（Steam 风格）
+
+    Args:
+        player_bg: 背景图片
+        player_avatar: 头像图片
+        player_name: 玩家昵称
+        player_id: 好友代码
+        player_description: 个人简介
+        player_last_two_weeks_time: 最近两周游戏时间
+        player_games: 游戏数据列表
+    """
+    if isinstance(player_bg, bytes):
+        player_bg = Image.open(BytesIO(player_bg))
+    if isinstance(player_avatar, bytes):
+        player_avatar = Image.open(BytesIO(player_avatar))
+
+    # 处理背景
+    bg = recolor_image(
+        player_bg.crop(
+            (
+                (player_bg.width - 960) // 2,
+                0,
+                (player_bg.width + 960) // 2,
+                player_bg.height,
+            )
+        ),
+        10,
+        10,
+    )
+    # 调暗背景
+    enhancer = ImageEnhance.Brightness(bg)
+    bg = enhancer.enhance(0.7)
+
+    player_avatar = player_avatar.resize((200, 200))
+    bg.paste(player_avatar, (40, 40))
+
+    draw = ImageDraw.Draw(bg)
+    font_light_40 = ImageFont.truetype(FONT_PATHS["light"], 40)
+    font_regular_19 = ImageFont.truetype(FONT_PATHS["regular"], 19)
+    font_light_22 = ImageFont.truetype(FONT_PATHS["light"], 22)
+    font_light_26 = ImageFont.truetype(FONT_PATHS["light"], 26)
+
+    # 画头像外框
+    draw.rectangle((40, 40, 240, 240), outline=(83, 164, 196), width=3)
+
+    # 画昵称
+    draw.text(
+        (280, 48),
+        player_name,
+        font=font_light_40,
+        fill=(255, 255, 255),
+    )
+
+    # 画ID
+    draw.text(
+        (280, 100),
+        f"好友代码: {player_id}",
+        font=font_regular_19,
+        fill=(191, 191, 191),
+    )
+
+    # 画简介
+    line_width = 0
+    offset = 0
+    line = ""
+    for idx, char in enumerate(player_description):
+        line += char
+        line_width += font_light_22.getlength(char)
+        if line_width > 640 or idx == len(player_description) - 1 or char == "\n":
+            draw.text(
+                (280, 132 + offset),
+                line,
+                font=font_light_22,
+                fill=(255, 255, 255),
+            )
+            line = ""
+            offset += 25
+            line_width = 0
+        if offset >= 25 * 4:
+            break
+
+    # 获取颜色
+    brightest_color, darkest_color = get_brightest_and_darkest_color(player_bg)
+    brightest_color = tuple(map(lambda x: x - 30 if x >= 30 else 0, brightest_color))
+    darkest_color = tuple(
+        map(lambda x: x + 30 if x <= 255 - 30 else 255, darkest_color)
+    )
+    brightest_color = (brightest_color[0], brightest_color[1], brightest_color[2], 128)
+    brightest_color = random_color_offset(brightest_color, 20)
+    darkest_color = (darkest_color[0], darkest_color[1], darkest_color[2], 128)
+    darkest_color = random_color_offset(darkest_color, 20)
+
+    # 计算成就颜色
+    hsv_achievement_color = rgb_to_hsv(*brightest_color[:3])
+    achievement_color = tuple(
+        map(
+            int,
+            hsv_to_rgb(
+                hsv_achievement_color[0],
+                hsv_achievement_color[1] * 0.85,
+                hsv_achievement_color[2] * 0.6,
+            ),
+        )
+    )
+
+    # 绘制游戏信息
+    game_images: List[Image.Image] = []
+    for game in player_games:
+        game_header = game.get("game_header")
+        if isinstance(game_header, bytes):
+            game_image = Image.open(BytesIO(game_header))
+        elif isinstance(game_header, Image.Image):
+            game_image = game_header
+        else:
+            game_image = Image.new("RGB", (229, 86), (60, 60, 65))
+
+        game_info = draw_game_info_steam(
+            game_image,
+            game.get("game_name", "未知游戏"),
+            game.get("game_time", "0 小时"),
+            game.get("last_play_time", ""),
+            game.get("achievements", []),
+            game.get("completed_achievement_number"),
+            game.get("total_achievement_number"),
+            achievement_color,
+        )
+        game_images.append(game_info)
+
+    # 画半透明黑色背景
+    if game_images:
+        bg_game = Image.new(
+            "RGBA", (920, 106 + sum([game_image.height + 26 for game_image in game_images]))
+        )
+        draw_game = ImageDraw.Draw(bg_game)
+        draw_game.rectangle(
+            (0, 0, 920, bg_game.height),
+            fill=(0, 0, 0, 120),
+        )
+        bg.paste(bg_game, (20, 272), bg_game)
+
+        # 画渐变条
+        gradient = create_gradient_image((920, 50), brightest_color, darkest_color)
+        bg.paste(gradient, (20, 272), gradient)
+
+        # 画渐变条的文字
+        draw.text(
+            (34, 279),
+            "最新动态",
+            font=font_light_26,
+            fill=(255, 255, 255),
+        )
+        if player_last_two_weeks_time:
+            width_text = font_light_26.getlength(player_last_two_weeks_time)
+            draw.text(
+                (960 - width_text - 34, 279),
+                player_last_two_weeks_time,
+                font=font_light_26,
+                fill=(255, 255, 255),
+            )
+
+        y = 350
+        for game_image in game_images:
+            bg.paste(
+                game_image,
+                ((920 - game_image.width) // 2 + 20, y),
+                game_image.convert("RGBA"),
+            )
+            y += game_image.height + 26
+
+    player_bg.paste(bg, ((player_bg.width - 960) // 2, 0), bg.convert("RGBA"))
+
+    return player_bg
+
+
+# ==================== 兼容层：保留原有接口 ====================
 
 
 def draw_friend_status(
@@ -443,7 +1148,7 @@ def draw_friend_status(
     height: int = 100
 ) -> Image.Image:
     """
-    绘制单个好友状态卡片
+    绘制单个好友状态卡片（兼容层）
 
     Args:
         avatar: 头像图片
@@ -457,59 +1162,19 @@ def draw_friend_status(
     Returns:
         好友状态卡片图像
     """
-    # 创建画布
-    img = Image.new("RGBA", (width, height), (255, 255, 255, 0))
-    draw = ImageDraw.Draw(img)
+    # 映射 status_type 到 personastate
+    status_to_persona = {
+        "gaming": 1,
+        "online": 1,
+        "offline": 0,
+        "busy": 2,
+    }
+    personastate = status_to_persona.get(status_type, 0)
 
-    # 背景
-    bg_color = (40, 40, 45, 230)
-    bg = rounded_rectangle((width, height), 15, bg_color)
-    img.paste(bg, (0, 0), bg)
+    # 确定状态文本
+    status = game_name if game_name else status_text
 
-    # 处理头像
-    avatar_size = height - 20
-    avatar = avatar.resize((avatar_size, avatar_size), Image.Resampling.LANCZOS)
-
-    # 创建圆形头像遮罩
-    mask = Image.new("L", (avatar_size, avatar_size), 0)
-    mask_draw = ImageDraw.Draw(mask)
-    mask_draw.ellipse([0, 0, avatar_size, avatar_size], fill=255)
-
-    # 粘贴头像
-    img.paste(avatar, (10, 10), mask)
-
-    # 状态指示器
-    status_color = STATUS_COLORS.get(status_type, STATUS_COLORS["offline"])
-    status_indicator = recolor_image((20, 20), status_color, 255)
-    img.paste(status_indicator, (avatar_size, height - 25), status_indicator)
-
-    # 文本区域
-    text_x = avatar_size + 30
-    text_y_start = 15
-
-    # 绘制名称
-    font_name = get_font(FONT_SIZE_NORMAL, "bold")
-    draw.text((text_x, text_y_start), name, fill=(255, 255, 255, 255), font=font_name)
-
-    # 绘制状态
-    font_status = get_font(FONT_SIZE_SMALL, "regular")
-    status_y = text_y_start + 30
-    draw.text((text_x, status_y), status_text, fill=(180, 180, 180, 255), font=font_status)
-
-    # 绘制游戏名称
-    if game_name:
-        font_game = get_font(FONT_SIZE_SMALL, "light")
-        game_y = status_y + 25
-        # 截断过长的游戏名
-        max_game_width = width - text_x - 20
-        game_text = game_name
-        if draw.textlength(game_text, font=font_game) > max_game_width:
-            while draw.textlength(game_text + "...", font=font_game) > max_game_width and len(game_text) > 0:
-                game_text = game_text[:-1]
-            game_text += "..."
-        draw.text((text_x, game_y), game_text, fill=(144, 186, 106, 255), font=font_game)
-
-    return img
+    return draw_friend_status_steam(avatar, name, status, personastate)
 
 
 def draw_gaming_friends_status(
