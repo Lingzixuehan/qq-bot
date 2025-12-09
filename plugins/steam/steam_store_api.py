@@ -1056,3 +1056,433 @@ class SteamStoreAPI:
                 }
 
         return None
+
+    # ==================== 新增 ITAD API 方法 ====================
+
+    async def search_games_itad(
+        self,
+        title: str,
+        limit: int = 20
+    ) -> List[Dict]:
+        """
+        使用ITAD增强游戏搜索
+
+        Args:
+            title: 游戏名称关键字
+            limit: 返回数量限制
+
+        Returns:
+            搜索结果列表，每个包含 {id, slug, title, type, mature}
+        """
+        if not self.itad_api_key:
+            logger.warning("ITAD API密钥未配置，无法使用增强搜索")
+            return []
+
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                url = f"{self.itad_base_url}/games/search/v1"
+                params = {
+                    "key": self.itad_api_key,
+                    "title": title,
+                    "results": min(limit, 50)
+                }
+
+                response = await client.get(url, params=params)
+                if response.status_code != 200:
+                    logger.error(f"ITAD搜索失败: {response.status_code}")
+                    return []
+
+                data = response.json()
+                results = []
+
+                for item in data:
+                    results.append({
+                        "id": item.get("id"),
+                        "slug": item.get("slug"),
+                        "title": item.get("title"),
+                        "type": item.get("type"),
+                        "mature": item.get("mature", False)
+                    })
+
+                logger.info(f"ITAD搜索 '{title}' 返回 {len(results)} 个结果")
+                return results
+
+        except Exception as e:
+            logger.error(f"ITAD搜索失败: {e}", exc_info=True)
+            return []
+
+    async def get_itad_deals(
+        self,
+        limit: int = 20,
+        offset: int = 0,
+        sort: str = "-cut",
+        country: str = "CN",
+        shops: Optional[List[int]] = None
+    ) -> Dict:
+        """
+        获取ITAD全网热门优惠
+
+        Args:
+            limit: 返回数量限制 (1-200)
+            offset: 偏移量
+            sort: 排序方式 ("-cut"=最高折扣, "price"=最低价格)
+            country: 国家代码
+            shops: 商店ID列表 (如 [61, 35] = Steam + GOG)
+
+        Returns:
+            优惠信息字典，包含 {nextOffset, hasMore, list}
+        """
+        if not self.itad_api_key:
+            logger.warning("ITAD API密钥未配置，无法获取全网优惠")
+            return {"nextOffset": 0, "hasMore": False, "list": []}
+
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                url = f"{self.itad_base_url}/deals/v2"
+                params = {
+                    "key": self.itad_api_key,
+                    "limit": min(limit, 200),
+                    "offset": offset,
+                    "sort": sort,
+                    "country": country.upper(),
+                    "nondeals": "false",
+                    "mature": "false"
+                }
+
+                if shops:
+                    params["shops"] = ",".join(map(str, shops))
+
+                response = await client.get(url, params=params)
+                if response.status_code != 200:
+                    logger.error(f"ITAD获取优惠失败: {response.status_code}")
+                    return {"nextOffset": 0, "hasMore": False, "list": []}
+
+                data = response.json()
+
+                # 处理返回数据
+                deals_list = []
+                for item in data.get("list", []):
+                    deal = item.get("deal", {})
+                    shop = deal.get("shop", {})
+                    price_info = deal.get("price", {})
+                    regular_info = deal.get("regular", {})
+
+                    deals_list.append({
+                        "id": item.get("id"),
+                        "slug": item.get("slug"),
+                        "title": item.get("title"),
+                        "type": item.get("type"),
+                        "shop_id": shop.get("id"),
+                        "shop_name": shop.get("name"),
+                        "price": price_info.get("amount"),
+                        "currency": price_info.get("currency"),
+                        "regular_price": regular_info.get("amount"),
+                        "cut": deal.get("cut", 0),
+                        "voucher": deal.get("voucher"),
+                        "url": deal.get("url"),
+                        "drm": deal.get("drm", []),
+                        "platforms": deal.get("platforms", []),
+                        "timestamp": deal.get("timestamp"),
+                        "expiry": deal.get("expiry"),
+                        "history_low": deal.get("historyLow"),
+                        "store_low": deal.get("storeLow")
+                    })
+
+                logger.info(f"ITAD获取到 {len(deals_list)} 个优惠")
+                return {
+                    "nextOffset": data.get("nextOffset", 0),
+                    "hasMore": data.get("hasMore", False),
+                    "list": deals_list
+                }
+
+        except Exception as e:
+            logger.error(f"ITAD获取优惠失败: {e}", exc_info=True)
+            return {"nextOffset": 0, "hasMore": False, "list": []}
+
+    async def get_price_history(
+        self,
+        game_id: str,
+        country: str = "CN",
+        shops: Optional[List[int]] = None,
+        since: Optional[str] = None
+    ) -> List[Dict]:
+        """
+        获取游戏历史价格走势
+
+        Args:
+            game_id: ITAD游戏ID (UUID格式)
+            country: 国家代码
+            shops: 商店ID列表
+            since: 起始日期 (ISO 8601格式)，默认最近3个月
+
+        Returns:
+            价格历史记录列表
+        """
+        if not self.itad_api_key:
+            logger.warning("ITAD API密钥未配置，无法获取价格历史")
+            return []
+
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                url = f"{self.itad_base_url}/games/history/v2"
+                params = {
+                    "key": self.itad_api_key,
+                    "id": game_id,
+                    "country": country.upper()
+                }
+
+                if shops:
+                    params["shops"] = ",".join(map(str, shops))
+                if since:
+                    params["since"] = since
+
+                response = await client.get(url, params=params)
+                if response.status_code != 200:
+                    logger.error(f"ITAD获取价格历史失败: {response.status_code}")
+                    return []
+
+                data = response.json()
+
+                # 处理返回数据
+                history_list = []
+                for record in data:
+                    shop = record.get("shop", {})
+                    price_info = record.get("price", {})
+                    regular_info = record.get("regular", {})
+
+                    history_list.append({
+                        "shop_id": shop.get("id"),
+                        "shop_name": shop.get("name"),
+                        "timestamp": record.get("timestamp"),
+                        "price": price_info.get("amount"),
+                        "currency": price_info.get("currency"),
+                        "regular_price": regular_info.get("amount") if regular_info else None,
+                        "cut": record.get("cut", 0)
+                    })
+
+                # 按时间排序
+                history_list.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+
+                logger.info(f"ITAD获取到 {len(history_list)} 条价格历史")
+                return history_list
+
+        except Exception as e:
+            logger.error(f"ITAD获取价格历史失败: {e}", exc_info=True)
+            return []
+
+    async def get_game_subscriptions(
+        self,
+        game_ids: List[str],
+        country: str = "CN"
+    ) -> List[Dict]:
+        """
+        查询游戏所在的订阅服务
+
+        Args:
+            game_ids: ITAD游戏ID列表 (UUID格式)
+            country: 国家代码
+
+        Returns:
+            订阅信息列表，每个包含 {id, subs: [{id, name}]}
+        """
+        if not self.itad_api_key:
+            logger.warning("ITAD API密钥未配置，无法查询订阅服务")
+            return []
+
+        if not game_ids:
+            return []
+
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                url = f"{self.itad_base_url}/games/subs/v1"
+                params = {
+                    "key": self.itad_api_key,
+                    "country": country.upper()
+                }
+
+                # 使用POST请求，请求体为游戏ID列表
+                response = await client.post(url, params=params, json=game_ids[:200])
+                if response.status_code != 200:
+                    logger.error(f"ITAD获取订阅信息失败: {response.status_code}")
+                    return []
+
+                data = response.json()
+
+                # 处理返回数据
+                results = []
+                for item in data:
+                    subs = []
+                    for sub in item.get("subs", []):
+                        subs.append({
+                            "id": sub.get("id"),
+                            "name": sub.get("name")
+                        })
+
+                    results.append({
+                        "id": item.get("id"),
+                        "subs": subs
+                    })
+
+                logger.info(f"ITAD查询到 {len(results)} 个游戏的订阅信息")
+                return results
+
+        except Exception as e:
+            logger.error(f"ITAD获取订阅信息失败: {e}", exc_info=True)
+            return []
+
+    async def get_all_platform_prices(
+        self,
+        game_ids: List[str],
+        country: str = "CN",
+        shops: Optional[List[int]] = None
+    ) -> List[Dict]:
+        """
+        获取游戏在所有平台的价格（跨平台比价）
+
+        Args:
+            game_ids: ITAD游戏ID列表 (UUID格式)
+            country: 国家代码
+            shops: 商店ID列表，None表示所有商店
+
+        Returns:
+            价格信息列表
+        """
+        if not self.itad_api_key:
+            logger.warning("ITAD API密钥未配置，无法获取跨平台价格")
+            return []
+
+        if not game_ids:
+            return []
+
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                url = f"{self.itad_base_url}/games/prices/v3"
+                params = {
+                    "key": self.itad_api_key,
+                    "country": country.upper()
+                }
+
+                if shops:
+                    params["shops"] = ",".join(map(str, shops))
+
+                response = await client.post(url, params=params, json=game_ids[:200])
+                if response.status_code != 200:
+                    logger.error(f"ITAD获取跨平台价格失败: {response.status_code}")
+                    return []
+
+                data = response.json()
+
+                # 处理返回数据
+                results = []
+                for item in data:
+                    deals = []
+                    for deal in item.get("deals", []):
+                        shop = deal.get("shop", {})
+                        price_info = deal.get("price", {})
+                        regular_info = deal.get("regular", {})
+
+                        deals.append({
+                            "shop_id": shop.get("id"),
+                            "shop_name": shop.get("name"),
+                            "price": price_info.get("amount"),
+                            "currency": price_info.get("currency"),
+                            "regular_price": regular_info.get("amount"),
+                            "cut": deal.get("cut", 0),
+                            "voucher": deal.get("voucher"),
+                            "url": deal.get("url"),
+                            "drm": deal.get("drm", []),
+                            "platforms": deal.get("platforms", []),
+                            "store_low": deal.get("storeLow"),
+                            "history_low": deal.get("historyLow")
+                        })
+
+                    # 按价格排序
+                    deals.sort(key=lambda x: x.get("price", 999999) or 999999)
+
+                    results.append({
+                        "id": item.get("id"),
+                        "deals": deals,
+                        "history_low": item.get("historyLow")
+                    })
+
+                logger.info(f"ITAD获取到 {len(results)} 个游戏的跨平台价格")
+                return results
+
+        except Exception as e:
+            logger.error(f"ITAD获取跨平台价格失败: {e}", exc_info=True)
+            return []
+
+    async def lookup_game_id(
+        self,
+        appid: Optional[int] = None,
+        title: Optional[str] = None
+    ) -> Optional[str]:
+        """
+        通过Steam appid或游戏名称查找ITAD游戏ID
+
+        Args:
+            appid: Steam游戏ID
+            title: 游戏名称
+
+        Returns:
+            ITAD游戏ID (UUID格式)
+        """
+        if not self.itad_api_key:
+            logger.warning("ITAD API密钥未配置")
+            return None
+
+        if not appid and not title:
+            return None
+
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                url = f"{self.itad_base_url}/games/lookup/v1"
+                params = {"key": self.itad_api_key}
+
+                if appid:
+                    params["appid"] = appid
+                elif title:
+                    params["title"] = title
+
+                response = await client.get(url, params=params)
+                if response.status_code != 200:
+                    logger.debug(f"ITAD lookup失败: {response.status_code}")
+                    return None
+
+                data = response.json()
+                if data and "game" in data:
+                    return data["game"].get("id")
+
+                return None
+
+        except Exception as e:
+            logger.error(f"ITAD lookup失败: {e}", exc_info=True)
+            return None
+
+    async def get_shops_list(self) -> List[Dict]:
+        """
+        获取ITAD支持的商店列表
+
+        Returns:
+            商店列表，每个包含 {id, title}
+        """
+        if not self.itad_api_key:
+            logger.warning("ITAD API密钥未配置")
+            return []
+
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                url = f"{self.itad_base_url}/service/shops/v1"
+                params = {"key": self.itad_api_key}
+
+                response = await client.get(url, params=params)
+                if response.status_code != 200:
+                    logger.error(f"ITAD获取商店列表失败: {response.status_code}")
+                    return []
+
+                data = response.json()
+                return [{"id": shop.get("id"), "title": shop.get("title")} for shop in data]
+
+        except Exception as e:
+            logger.error(f"ITAD获取商店列表失败: {e}", exc_info=True)
+            return []

@@ -2158,3 +2158,527 @@ def draw_game_list_with_tags(
         y_offset += card_height + card_spacing
 
     return img
+
+
+# ==================== ITAD 新功能绘图函数 ====================
+
+
+def draw_itad_deals(
+    deals: List[Dict[str, Any]],
+    title: str = "全网热门优惠",
+    subtitle: str = "",
+    width: int = 1000
+) -> Image.Image:
+    """
+    渲染ITAD全网热门优惠列表
+
+    Args:
+        deals: 优惠列表，每个包含 {title, shop_name, price, currency, regular_price, cut, url}
+        title: 标题
+        subtitle: 副标题
+        width: 图片宽度
+
+    Returns:
+        优惠列表图片
+    """
+    if not deals:
+        img = Image.new("RGBA", (width, 200), (24, 27, 33, 255))
+        draw = ImageDraw.Draw(img)
+        font = get_font(FONT_SIZE_LARGE, "regular")
+        draw.text((width // 2, 100), "暂无优惠信息", fill=(150, 150, 150, 255), font=font, anchor="mm")
+        return img
+
+    padding = 30
+    header_height = 100
+    row_height = 80
+    total_height = header_height + padding + row_height * len(deals) + padding
+
+    img = Image.new("RGBA", (width, total_height), (24, 27, 33, 255))
+    draw = ImageDraw.Draw(img)
+
+    # 标题
+    title_font = get_font(FONT_SIZE_TITLE, "bold")
+    subtitle_font = get_font(FONT_SIZE_MEDIUM, "regular")
+    draw.text((padding, padding), title, font=title_font, fill=(255, 255, 255, 255))
+    if subtitle:
+        draw.text((padding, padding + 55), subtitle, font=subtitle_font, fill=(180, 180, 190, 255))
+
+    # 优惠列表
+    y_offset = header_height
+    name_font = get_font(FONT_SIZE_NORMAL, "bold")
+    info_font = get_font(FONT_SIZE_SMALL, "regular")
+    price_font = get_font(FONT_SIZE_MEDIUM, "bold")
+
+    currency_symbols = {
+        "CNY": "¥", "USD": "$", "EUR": "€",
+        "JPY": "¥", "UAH": "₴", "ARS": "$", "TRY": "₺", "GBP": "£"
+    }
+
+    for idx, deal in enumerate(deals, 1):
+        # 背景条
+        row_bg = rounded_rectangle((width - padding * 2, row_height - 10), 12, (42, 45, 53, 255))
+        img.paste(row_bg, (padding, y_offset), row_bg)
+
+        # 排名
+        draw.text((padding + 15, y_offset + 25), f"#{idx:02d}", font=info_font, fill=(120, 130, 150, 255))
+
+        # 游戏名
+        game_name = deal.get("title", "未知游戏")
+        max_name_width = 450
+        while draw.textlength(game_name, font=name_font) > max_name_width and len(game_name) > 0:
+            game_name = game_name[:-1]
+        if draw.textlength(deal.get("title", "未知游戏"), font=name_font) > max_name_width:
+            game_name = game_name[:-1] + "..."
+        draw.text((padding + 70, y_offset + 12), game_name, font=name_font, fill=(240, 240, 245, 255))
+
+        # 商店名
+        shop_name = deal.get("shop_name", "Unknown")
+        draw.text((padding + 70, y_offset + 42), shop_name, font=info_font, fill=(150, 160, 180, 255))
+
+        # 折扣标签
+        cut = deal.get("cut", 0)
+        if cut > 0:
+            discount_text = f"-{cut}%"
+            discount_w = draw.textlength(discount_text, font=price_font)
+            discount_bg = rounded_rectangle((int(discount_w) + 20, 32), 8, (144, 186, 106, 200))
+            img.paste(discount_bg, (width - padding - 200, y_offset + 20), discount_bg)
+            draw.text((width - padding - 190, y_offset + 23), discount_text, font=price_font, fill=(255, 255, 255, 255))
+
+        # 价格
+        price = deal.get("price", 0)
+        currency = deal.get("currency", "CNY")
+        symbol = currency_symbols.get(currency, currency + " ")
+        price_text = f"{symbol}{price:.2f}" if price else "免费"
+        draw.text((width - padding - 90, y_offset + 23), price_text, font=price_font, fill=(100, 200, 150, 255))
+
+        y_offset += row_height
+
+    return img
+
+
+def draw_price_history(
+    game_name: str,
+    history: List[Dict[str, Any]],
+    width: int = 1000,
+    height: int = 600
+) -> Image.Image:
+    """
+    渲染游戏价格历史走势图
+
+    Args:
+        game_name: 游戏名称
+        history: 价格历史列表，每个包含 {timestamp, price, shop_name, cut}
+        width: 图片宽度
+        height: 图片高度
+
+    Returns:
+        价格走势图片
+    """
+    padding = 50
+    chart_padding = 30
+    header_height = 80
+
+    img = Image.new("RGBA", (width, height), (24, 27, 33, 255))
+    draw = ImageDraw.Draw(img)
+
+    # 标题
+    title_font = get_font(FONT_SIZE_TITLE, "bold")
+    draw.text((padding, padding - 20), f"价格走势: {game_name}", font=title_font, fill=(255, 255, 255, 255))
+
+    if not history:
+        info_font = get_font(FONT_SIZE_LARGE, "regular")
+        draw.text((width // 2, height // 2), "暂无价格历史数据", fill=(150, 150, 150, 255), font=info_font, anchor="mm")
+        return img
+
+    # 提取数据
+    chart_left = padding + chart_padding
+    chart_right = width - padding - chart_padding
+    chart_top = header_height + chart_padding
+    chart_bottom = height - padding - chart_padding - 40
+    chart_width = chart_right - chart_left
+    chart_height = chart_bottom - chart_top
+
+    # 按商店分组
+    shop_data = {}
+    for record in history:
+        shop = record.get("shop_name", "Unknown")
+        if shop not in shop_data:
+            shop_data[shop] = []
+        shop_data[shop].append(record)
+
+    # 获取价格范围
+    all_prices = [r.get("price", 0) for r in history if r.get("price")]
+    if not all_prices:
+        info_font = get_font(FONT_SIZE_LARGE, "regular")
+        draw.text((width // 2, height // 2), "暂无有效价格数据", fill=(150, 150, 150, 255), font=info_font, anchor="mm")
+        return img
+
+    min_price = min(all_prices) * 0.9
+    max_price = max(all_prices) * 1.1
+    price_range = max_price - min_price if max_price > min_price else 1
+
+    # 绘制图表背景网格
+    grid_color = (50, 55, 65, 255)
+    for i in range(5):
+        y = chart_top + (chart_height * i // 4)
+        draw.line([(chart_left, y), (chart_right, y)], fill=grid_color, width=1)
+        price_label = max_price - (price_range * i / 4)
+        label_font = get_font(FONT_SIZE_TINY, "regular")
+        draw.text((chart_left - 10, y), f"¥{price_label:.0f}", font=label_font, fill=(120, 120, 130, 255), anchor="rm")
+
+    # 商店颜色
+    shop_colors = [
+        (100, 180, 255, 255),  # Steam - 蓝
+        (255, 150, 100, 255),  # GOG - 橙
+        (150, 255, 150, 255),  # Epic - 绿
+        (255, 200, 100, 255),  # Humble - 黄
+        (200, 150, 255, 255),  # Fanatical - 紫
+    ]
+
+    # 绘制各商店价格曲线
+    legend_y = chart_bottom + 30
+    legend_x = chart_left
+    small_font = get_font(FONT_SIZE_TINY, "regular")
+
+    for shop_idx, (shop, records) in enumerate(list(shop_data.items())[:5]):
+        color = shop_colors[shop_idx % len(shop_colors)]
+
+        # 排序并提取点
+        sorted_records = sorted(records, key=lambda x: x.get("timestamp", ""))
+        if len(sorted_records) < 2:
+            continue
+
+        points = []
+        for i, record in enumerate(sorted_records):
+            price = record.get("price", 0)
+            if not price:
+                continue
+            x = chart_left + (chart_width * i // (len(sorted_records) - 1)) if len(sorted_records) > 1 else chart_left
+            y = chart_bottom - ((price - min_price) / price_range * chart_height)
+            points.append((x, int(y)))
+
+        # 绘制折线
+        if len(points) >= 2:
+            for i in range(len(points) - 1):
+                draw.line([points[i], points[i + 1]], fill=color, width=2)
+
+        # 绘制点
+        for point in points:
+            draw.ellipse([point[0] - 4, point[1] - 4, point[0] + 4, point[1] + 4], fill=color)
+
+        # 图例
+        draw.rectangle([legend_x, legend_y, legend_x + 20, legend_y + 12], fill=color)
+        draw.text((legend_x + 28, legend_y - 2), shop, font=small_font, fill=(200, 200, 210, 255))
+        legend_x += draw.textlength(shop, font=small_font) + 50
+
+    return img
+
+
+def draw_subscriptions_info(
+    game_name: str,
+    subscriptions: List[Dict[str, Any]],
+    width: int = 800
+) -> Image.Image:
+    """
+    渲染游戏订阅服务信息
+
+    Args:
+        game_name: 游戏名称
+        subscriptions: 订阅服务列表，每个包含 {id, name}
+        width: 图片宽度
+
+    Returns:
+        订阅信息图片
+    """
+    padding = 30
+    header_height = 100
+    row_height = 60
+
+    # 计算高度
+    content_height = max(len(subscriptions), 1) * row_height
+    total_height = header_height + content_height + padding * 2
+
+    img = Image.new("RGBA", (width, total_height), (24, 27, 33, 255))
+    draw = ImageDraw.Draw(img)
+
+    # 标题
+    title_font = get_font(FONT_SIZE_TITLE, "bold")
+    subtitle_font = get_font(FONT_SIZE_MEDIUM, "regular")
+
+    draw.text((padding, padding), "订阅服务查询", font=title_font, fill=(255, 255, 255, 255))
+    draw.text((padding, padding + 55), game_name, font=subtitle_font, fill=(180, 180, 190, 255))
+
+    # 订阅列表
+    y_offset = header_height + padding
+    name_font = get_font(FONT_SIZE_NORMAL, "bold")
+
+    if not subscriptions:
+        info_font = get_font(FONT_SIZE_MEDIUM, "regular")
+        draw.text((width // 2, y_offset + 20), "该游戏未包含在任何订阅服务中", fill=(150, 150, 150, 255), font=info_font, anchor="mm")
+    else:
+        # 订阅服务图标颜色
+        sub_colors = {
+            "xbox": (16, 124, 16, 255),      # Xbox Game Pass - 绿色
+            "ea": (255, 68, 0, 255),         # EA Play - 橙色
+            "ubisoft": (0, 96, 169, 255),    # Ubisoft+ - 蓝色
+            "humble": (204, 51, 63, 255),    # Humble Choice - 红色
+            "prime": (0, 168, 225, 255),     # Prime Gaming - 青色
+        }
+
+        for sub in subscriptions:
+            sub_name = sub.get("name", "Unknown")
+
+            # 根据名称匹配颜色
+            color = (100, 150, 200, 255)
+            for key, c in sub_colors.items():
+                if key.lower() in sub_name.lower():
+                    color = c
+                    break
+
+            # 背景条
+            row_bg = rounded_rectangle((width - padding * 2, row_height - 10), 12, (42, 45, 53, 255))
+            img.paste(row_bg, (padding, y_offset), row_bg)
+
+            # 订阅服务图标（圆形）
+            icon_size = 36
+            icon = Image.new("RGBA", (icon_size, icon_size), (0, 0, 0, 0))
+            icon_draw = ImageDraw.Draw(icon)
+            icon_draw.ellipse([0, 0, icon_size - 1, icon_size - 1], fill=color)
+            img.paste(icon, (padding + 15, y_offset + 8), icon)
+
+            # 订阅服务名称
+            draw.text((padding + 65, y_offset + 14), sub_name, font=name_font, fill=(240, 240, 245, 255))
+
+            # 可用标记
+            available_text = "可用"
+            draw.text((width - padding - 60, y_offset + 16), available_text, font=name_font, fill=(100, 200, 100, 255))
+
+            y_offset += row_height
+
+    return img
+
+
+def draw_cross_platform_prices(
+    game_name: str,
+    prices: List[Dict[str, Any]],
+    history_low: Optional[Dict[str, Any]] = None,
+    width: int = 1000
+) -> Image.Image:
+    """
+    渲染跨平台比价图
+
+    Args:
+        game_name: 游戏名称
+        prices: 各平台价格列表，每个包含 {shop_name, price, currency, regular_price, cut, url}
+        history_low: 史低信息
+        width: 图片宽度
+
+    Returns:
+        跨平台比价图片
+    """
+    padding = 30
+    header_height = 120
+    row_height = 70
+
+    # 计算高度
+    content_height = max(len(prices), 1) * row_height
+    low_section_height = 80 if history_low else 0
+    total_height = header_height + content_height + low_section_height + padding * 2
+
+    img = Image.new("RGBA", (width, total_height), (24, 27, 33, 255))
+    draw = ImageDraw.Draw(img)
+
+    # 标题
+    title_font = get_font(FONT_SIZE_TITLE, "bold")
+    subtitle_font = get_font(FONT_SIZE_MEDIUM, "regular")
+
+    draw.text((padding, padding), "跨平台比价", font=title_font, fill=(255, 255, 255, 255))
+
+    # 游戏名（截断处理）
+    max_name_width = width - padding * 2 - 100
+    display_name = game_name
+    while draw.textlength(display_name, font=subtitle_font) > max_name_width and len(display_name) > 0:
+        display_name = display_name[:-1]
+    if draw.textlength(game_name, font=subtitle_font) > max_name_width:
+        display_name = display_name[:-1] + "..."
+    draw.text((padding, padding + 55), display_name, font=subtitle_font, fill=(180, 180, 190, 255))
+
+    # 价格列表
+    y_offset = header_height
+    name_font = get_font(FONT_SIZE_NORMAL, "bold")
+    info_font = get_font(FONT_SIZE_SMALL, "regular")
+    price_font = get_font(FONT_SIZE_MEDIUM, "bold")
+
+    currency_symbols = {
+        "CNY": "¥", "USD": "$", "EUR": "€",
+        "JPY": "¥", "UAH": "₴", "ARS": "$", "TRY": "₺", "GBP": "£"
+    }
+
+    # 商店颜色
+    shop_colors = {
+        "steam": (27, 40, 56, 255),
+        "gog": (134, 60, 180, 255),
+        "epic": (45, 45, 45, 255),
+        "humble": (204, 51, 63, 255),
+        "fanatical": (248, 127, 31, 255),
+        "greenmangaming": (46, 186, 64, 255),
+        "gamebillet": (33, 150, 243, 255),
+    }
+
+    if not prices:
+        info_font_large = get_font(FONT_SIZE_LARGE, "regular")
+        draw.text((width // 2, y_offset + 30), "暂无价格信息", fill=(150, 150, 150, 255), font=info_font_large, anchor="mm")
+    else:
+        for idx, price_data in enumerate(prices):
+            shop_name = price_data.get("shop_name", "Unknown")
+
+            # 根据商店名匹配颜色
+            shop_color = (60, 65, 75, 255)
+            for key, c in shop_colors.items():
+                if key.lower() in shop_name.lower():
+                    shop_color = c
+                    break
+
+            # 背景条
+            row_bg = rounded_rectangle((width - padding * 2, row_height - 10), 12, (42, 45, 53, 255))
+            img.paste(row_bg, (padding, y_offset), row_bg)
+
+            # 商店标识条
+            shop_indicator = rounded_rectangle((6, row_height - 20), 3, shop_color)
+            img.paste(shop_indicator, (padding + 10, y_offset + 5), shop_indicator)
+
+            # 排名标记（最低价）
+            if idx == 0:
+                best_badge = rounded_rectangle((50, 24), 6, (255, 180, 50, 255))
+                img.paste(best_badge, (padding + 25, y_offset + 18), best_badge)
+                badge_font = get_font(FONT_SIZE_TINY, "bold")
+                draw.text((padding + 35, y_offset + 20), "最低", font=badge_font, fill=(50, 50, 50, 255))
+
+            # 商店名
+            draw.text((padding + 90, y_offset + 18), shop_name, font=name_font, fill=(240, 240, 245, 255))
+
+            # 折扣标签
+            cut = price_data.get("cut", 0)
+            if cut > 0:
+                discount_text = f"-{cut}%"
+                discount_w = draw.textlength(discount_text, font=info_font)
+                discount_bg = rounded_rectangle((int(discount_w) + 16, 26), 6, (144, 186, 106, 200))
+                img.paste(discount_bg, (width - padding - 220, y_offset + 17), discount_bg)
+                draw.text((width - padding - 212, y_offset + 19), discount_text, font=info_font, fill=(255, 255, 255, 255))
+
+            # 价格
+            price = price_data.get("price", 0)
+            currency = price_data.get("currency", "CNY")
+            symbol = currency_symbols.get(currency, currency + " ")
+            price_text = f"{symbol}{price:.2f}" if price else "免费"
+            price_color = (100, 200, 150, 255) if idx == 0 else (200, 200, 210, 255)
+            draw.text((width - padding - 100, y_offset + 16), price_text, font=price_font, fill=price_color)
+
+            y_offset += row_height
+
+    # 史低信息
+    if history_low:
+        y_offset += 10
+        draw.line([(padding, y_offset), (width - padding, y_offset)], fill=(60, 65, 75, 255), width=1)
+        y_offset += 15
+
+        low_font = get_font(FONT_SIZE_NORMAL, "bold")
+        low_info_font = get_font(FONT_SIZE_SMALL, "regular")
+
+        draw.text((padding, y_offset), "历史最低:", font=low_info_font, fill=(150, 150, 160, 255))
+
+        low_price = history_low.get("price", {})
+        if isinstance(low_price, dict):
+            amount = low_price.get("amount", 0)
+            currency = low_price.get("currency", "CNY")
+        else:
+            amount = low_price
+            currency = "CNY"
+
+        symbol = currency_symbols.get(currency, currency + " ")
+        low_text = f"{symbol}{amount:.2f}" if amount else "未知"
+        draw.text((padding + 100, y_offset), low_text, font=low_font, fill=(255, 180, 100, 255))
+
+    return img
+
+
+def draw_game_search_results(
+    keyword: str,
+    results: List[Dict[str, Any]],
+    width: int = 900
+) -> Image.Image:
+    """
+    渲染游戏搜索结果
+
+    Args:
+        keyword: 搜索关键词
+        results: 搜索结果列表，每个包含 {id, slug, title, type}
+        width: 图片宽度
+
+    Returns:
+        搜索结果图片
+    """
+    padding = 30
+    header_height = 100
+    row_height = 55
+
+    # 计算高度
+    content_height = max(len(results), 1) * row_height
+    total_height = header_height + content_height + padding * 2
+
+    img = Image.new("RGBA", (width, total_height), (24, 27, 33, 255))
+    draw = ImageDraw.Draw(img)
+
+    # 标题
+    title_font = get_font(FONT_SIZE_TITLE, "bold")
+    subtitle_font = get_font(FONT_SIZE_MEDIUM, "regular")
+
+    draw.text((padding, padding), "游戏搜索结果", font=title_font, fill=(255, 255, 255, 255))
+    draw.text((padding, padding + 55), f"关键词: {keyword}", font=subtitle_font, fill=(180, 180, 190, 255))
+
+    # 搜索结果列表
+    y_offset = header_height + padding
+    name_font = get_font(FONT_SIZE_NORMAL, "bold")
+    info_font = get_font(FONT_SIZE_SMALL, "regular")
+
+    # 类型颜色
+    type_colors = {
+        "game": (100, 180, 255, 255),
+        "dlc": (255, 180, 100, 255),
+        "bundle": (180, 100, 255, 255),
+        "package": (100, 255, 180, 255),
+    }
+
+    if not results:
+        info_font_large = get_font(FONT_SIZE_LARGE, "regular")
+        draw.text((width // 2, y_offset + 20), "未找到相关游戏", fill=(150, 150, 150, 255), font=info_font_large, anchor="mm")
+    else:
+        for idx, result in enumerate(results[:15], 1):
+            # 背景条
+            row_bg = rounded_rectangle((width - padding * 2, row_height - 8), 10, (42, 45, 53, 255))
+            img.paste(row_bg, (padding, y_offset), row_bg)
+
+            # 序号
+            draw.text((padding + 15, y_offset + 14), f"{idx:02d}", font=info_font, fill=(120, 130, 150, 255))
+
+            # 游戏名
+            game_title = result.get("title", "未知游戏")
+            max_title_width = width - 250
+            while draw.textlength(game_title, font=name_font) > max_title_width and len(game_title) > 0:
+                game_title = game_title[:-1]
+            if draw.textlength(result.get("title", "未知游戏"), font=name_font) > max_title_width:
+                game_title = game_title[:-1] + "..."
+            draw.text((padding + 55, y_offset + 12), game_title, font=name_font, fill=(240, 240, 245, 255))
+
+            # 类型标签
+            game_type = result.get("type", "game")
+            type_color = type_colors.get(game_type, (150, 150, 160, 255))
+            type_text = game_type.upper()
+            type_w = draw.textlength(type_text, font=info_font)
+            type_bg = rounded_rectangle((int(type_w) + 16, 22), 6, (*type_color[:3], 80))
+            img.paste(type_bg, (width - padding - int(type_w) - 30, y_offset + 14), type_bg)
+            draw.text((width - padding - int(type_w) - 22, y_offset + 15), type_text, font=info_font, fill=type_color)
+
+            y_offset += row_height
+
+    return img
