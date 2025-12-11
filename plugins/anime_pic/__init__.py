@@ -97,41 +97,63 @@ def increment_usage(group_id: str, user_id: str):
         rate_limit_data[group_id][user_id]["count"] += 1
 
 
-async def download_image_as_base64(url: str, timeout: int = 15) -> MessageSegment | None:
+async def download_image_as_base64(
+    url: str,
+    timeout: int = 30,
+    max_retries: int = 3,
+    retry_delay: float = 3.0
+) -> MessageSegment | None:
     """
     下载图片并转换为 base64 格式的 MessageSegment
     这样可以避免 NapCat 下载外部 URL 失败的问题
 
+    支持失败重试机制
+
     Args:
         url: 图片URL
-        timeout: 超时时间（秒）
+        timeout: 超时时间（秒），默认30秒
+        max_retries: 最大重试次数，默认3次
+        retry_delay: 重试间隔（秒），默认3秒
 
     Returns:
         MessageSegment.image 或 None（下载失败时）
     """
-    try:
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            # 添加常见的请求头，避免被拒绝
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Referer": url,
-            }
-            response = await client.get(url, headers=headers)
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer": url,
+    }
 
-            if response.status_code != 200:
-                logger.warning(f"下载图片失败: {url}, status={response.status_code}")
-                return None
+    last_error = None
 
-            # 转换为 base64
-            img_base64 = base64.b64encode(response.content).decode()
-            return MessageSegment.image(f"base64://{img_base64}")
+    for attempt in range(max_retries):
+        try:
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+                response = await client.get(url, headers=headers)
 
-    except httpx.TimeoutException:
-        logger.warning(f"下载图片超时: {url}")
-        return None
-    except Exception as e:
-        logger.warning(f"下载图片异常: {url}, error={e}")
-        return None
+                if response.status_code == 200:
+                    # 成功，转换为 base64
+                    img_base64 = base64.b64encode(response.content).decode()
+                    if attempt > 0:
+                        logger.info(f"下载图片成功（第{attempt + 1}次尝试）: {url}")
+                    return MessageSegment.image(f"base64://{img_base64}")
+                else:
+                    last_error = f"status={response.status_code}"
+                    logger.warning(f"下载图片失败（第{attempt + 1}/{max_retries}次）: {url}, {last_error}")
+
+        except httpx.TimeoutException:
+            last_error = "超时"
+            logger.warning(f"下载图片超时（第{attempt + 1}/{max_retries}次）: {url}")
+        except Exception as e:
+            last_error = str(e)
+            logger.warning(f"下载图片异常（第{attempt + 1}/{max_retries}次）: {url}, error={e}")
+
+        # 如果还有重试机会，等待后继续
+        if attempt < max_retries - 1:
+            logger.info(f"等待 {retry_delay} 秒后重试...")
+            await asyncio.sleep(retry_delay)
+
+    logger.error(f"下载图片最终失败（已重试{max_retries}次）: {url}, 最后错误: {last_error}")
+    return None
 
 
 async def send_image_safe(matcher, url: str, fallback_msg: str = "图片加载失败"):
