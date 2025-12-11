@@ -12,6 +12,8 @@ from nonebot.log import logger
 import requests
 import asyncio
 import random
+import base64
+import httpx
 from datetime import datetime, timedelta
 
 
@@ -93,6 +95,59 @@ def increment_usage(group_id: str, user_id: str):
     """增加使用次数"""
     if group_id in rate_limit_data and user_id in rate_limit_data[group_id]:
         rate_limit_data[group_id][user_id]["count"] += 1
+
+
+async def download_image_as_base64(url: str, timeout: int = 15) -> MessageSegment | None:
+    """
+    下载图片并转换为 base64 格式的 MessageSegment
+    这样可以避免 NapCat 下载外部 URL 失败的问题
+
+    Args:
+        url: 图片URL
+        timeout: 超时时间（秒）
+
+    Returns:
+        MessageSegment.image 或 None（下载失败时）
+    """
+    try:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            # 添加常见的请求头，避免被拒绝
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Referer": url,
+            }
+            response = await client.get(url, headers=headers)
+
+            if response.status_code != 200:
+                logger.warning(f"下载图片失败: {url}, status={response.status_code}")
+                return None
+
+            # 转换为 base64
+            img_base64 = base64.b64encode(response.content).decode()
+            return MessageSegment.image(f"base64://{img_base64}")
+
+    except httpx.TimeoutException:
+        logger.warning(f"下载图片超时: {url}")
+        return None
+    except Exception as e:
+        logger.warning(f"下载图片异常: {url}, error={e}")
+        return None
+
+
+async def send_image_safe(matcher, url: str, fallback_msg: str = "图片加载失败"):
+    """
+    安全地发送图片，如果下载失败则发送提示消息
+
+    Args:
+        matcher: nonebot matcher
+        url: 图片URL
+        fallback_msg: 下载失败时的提示消息
+    """
+    img_seg = await download_image_as_base64(url)
+    if img_seg:
+        await matcher.finish(img_seg)
+    else:
+        await matcher.finish(f"❌ {fallback_msg}\n🔗 原图: {url}")
 
 
 # 随机美图
@@ -247,7 +302,12 @@ async def handle_random_pic(event: MessageEvent, args: Message = CommandArg()):
             msg = "🎨 LoliAPI 随机图片"
 
         await random_pic.send(msg)
-        await random_pic.finish(MessageSegment.image(img_url))
+        # 先下载图片再发送，避免NapCat下载外部URL失败
+        img_seg = await download_image_as_base64(img_url)
+        if img_seg:
+            await random_pic.finish(img_seg)
+        else:
+            await random_pic.finish(f"❌ 图片加载失败\n🔗 原图: {img_url}")
 
     except FinishedException:
         raise
@@ -497,7 +557,12 @@ async def handle_search_pic(event: MessageEvent, args: Message = CommandArg()):
                 msg += f"\n\n💡 剩余次数: {limit - used}/{limit}"
 
         await search_pic.send(msg)
-        await search_pic.finish(MessageSegment.image(img_url))
+        # 先下载图片再发送，避免NapCat下载外部URL失败
+        img_seg = await download_image_as_base64(img_url)
+        if img_seg:
+            await search_pic.finish(img_seg)
+        else:
+            await search_pic.finish(f"❌ 图片加载失败\n🔗 原图: {img_url}")
 
     except FinishedException:
         raise
@@ -577,8 +642,10 @@ async def handle_multi_pic(event: MessageEvent, args: Message = CommandArg()):
                         try:
                             img_url = post.get('file_url') or post.get('image')
                             if img_url:
-                                await multi_pic.send(MessageSegment.image(img_url))
-                                success_count += 1
+                                img_seg = await download_image_as_base64(img_url)
+                                if img_seg:
+                                    await multi_pic.send(img_seg)
+                                    success_count += 1
                         except Exception as e:
                             logger.error(f"[来点图] 发送图片失败: {e}")
                             continue
@@ -607,8 +674,10 @@ async def handle_multi_pic(event: MessageEvent, args: Message = CommandArg()):
                         urls = post.get('urls', {})
                         img_url = urls.get('original') or urls.get('regular')
                         if img_url:
-                            await multi_pic.send(MessageSegment.image(img_url))
-                            success_count += 1
+                            img_seg = await download_image_as_base64(img_url)
+                            if img_seg:
+                                await multi_pic.send(img_seg)
+                                success_count += 1
                     except Exception as e:
                         logger.error(f"[来点图] 发送图片失败: {e}")
                         continue
@@ -638,8 +707,10 @@ async def handle_multi_pic(event: MessageEvent, args: Message = CommandArg()):
                     try:
                         img_url = post.get('file_url') or post.get('large_file_url')
                         if img_url:
-                            await multi_pic.send(MessageSegment.image(img_url))
-                            success_count += 1
+                            img_seg = await download_image_as_base64(img_url)
+                            if img_seg:
+                                await multi_pic.send(img_seg)
+                                success_count += 1
                     except Exception as e:
                         logger.error(f"[来点图] 发送图片失败: {e}")
                         continue
@@ -657,8 +728,10 @@ async def handle_multi_pic(event: MessageEvent, args: Message = CommandArg()):
                     if response.status_code == 200:
                         img_url = response.url
                         if img_url:
-                            await multi_pic.send(MessageSegment.image(img_url))
-                            success_count += 1
+                            img_seg = await download_image_as_base64(str(img_url))
+                            if img_seg:
+                                await multi_pic.send(img_seg)
+                                success_count += 1
                 except Exception as e:
                     logger.error(f"[来点图] 发送第{i+1}张图片失败: {e}")
                     continue
