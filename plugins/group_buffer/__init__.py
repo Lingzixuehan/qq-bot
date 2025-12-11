@@ -149,10 +149,13 @@ if GROUP_BUFFER_GROUPS:
                         await asyncio.sleep(0.5)  # 避免发送过快
                     except Exception as send_err:
                         logger.debug(f"发送单条消息失败: {send_err}")
+                # fallback 发送成功后也清理临时文件
+                _cleanup_old_temp_images()
             except Exception as err2:
                 logger.error(f"发送缓冲文本汇总仍失败: group={group_id}, err={err2}")
-            async with buffer_lock:
-                message_buffers.setdefault(group_id, []).extend(entries)
+                # 只有 fallback 也失败时才把消息放回缓冲
+                async with buffer_lock:
+                    message_buffers.setdefault(group_id, []).extend(entries)
 
     async def _buffer_message(
         bot: Bot, group_id: str, message: Union[str, Message, MessageSegment]
