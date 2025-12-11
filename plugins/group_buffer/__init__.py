@@ -17,6 +17,7 @@ from typing import Dict, List, Union
 from nonebot import get_driver, get_bot
 from nonebot.adapters.onebot.v11 import Bot, Message, MessageSegment
 from nonebot.log import logger
+from nonebot.internal.matcher import current_event
 
 driver = get_driver()
 config = driver.config
@@ -103,9 +104,13 @@ if GROUP_BUFFER_GROUPS:
             bot = get_bot(bot_id)
             nodes = []
             for entry in entries:
-                content = Message(
-                    MessageSegment.text(f"[{entry['time']}] ")
-                ) + entry["message"]
+                # 构建消息：时间 + @用户 + 内容
+                content = Message(MessageSegment.text(f"[{entry['time']}] "))
+                # 如果有用户ID，添加 @
+                if entry.get("user_id"):
+                    content += MessageSegment.at(entry["user_id"])
+                    content += MessageSegment.text(" ")
+                content += entry["message"]
                 nodes.append(
                     {
                         "type": "node",
@@ -139,7 +144,12 @@ if GROUP_BUFFER_GROUPS:
                 # 逐条发送原始消息
                 for entry in entries:
                     try:
-                        msg = Message(MessageSegment.text(f"[{entry['time']}] ")) + entry["message"]
+                        # 构建消息：时间 + @用户 + 内容
+                        msg = Message(MessageSegment.text(f"[{entry['time']}] "))
+                        if entry.get("user_id"):
+                            msg += MessageSegment.at(entry["user_id"])
+                            msg += MessageSegment.text(" ")
+                        msg += entry["message"]
                         await original_call_api(
                             bot,
                             "send_group_msg",
@@ -158,7 +168,8 @@ if GROUP_BUFFER_GROUPS:
                     message_buffers.setdefault(group_id, []).extend(entries)
 
     async def _buffer_message(
-        bot: Bot, group_id: str, message: Union[str, Message, MessageSegment]
+        bot: Bot, group_id: str, message: Union[str, Message, MessageSegment],
+        user_id: str | None = None
     ):
         # 将 base64 图片转换为本地文件，避免合并转发时下载失败
         converted_message = _convert_base64_images_to_files(Message(message))
@@ -166,6 +177,7 @@ if GROUP_BUFFER_GROUPS:
         entry = {
             "time": datetime.now().strftime("%H:%M:%S"),
             "message": converted_message,
+            "user_id": user_id,  # 保存请求用户ID，用于 @
         }
         async with buffer_lock:
             message_buffers.setdefault(group_id, []).append(entry)
@@ -182,10 +194,21 @@ if GROUP_BUFFER_GROUPS:
             target_group = str(data.get("group_id"))
 
         if target_group and target_group in GROUP_BUFFER_GROUPS:
+            # 尝试获取当前事件的用户ID
+            user_id: str | None = None
+            try:
+                event = current_event.get()
+                if event and hasattr(event, "user_id"):
+                    user_id = str(event.user_id)
+            except LookupError:
+                # 没有当前事件上下文（比如定时任务触发的消息）
+                pass
+
             await _buffer_message(
                 self,
                 target_group,
                 data.get("message", ""),
+                user_id=user_id,
             )
             return {"status": "buffered"}
         return await original_call_api(self, api, **data)
