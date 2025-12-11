@@ -57,10 +57,12 @@ def _convert_base64_images_to_files(message: Message) -> Message:
                     with open(temp_file, "wb") as f:
                         f.write(image_bytes)
 
-                    # 使用 file:// 协议引用本地文件
-                    new_seg = MessageSegment.image(f"file:///{temp_file}")
+                    # 使用绝对路径（转换为正斜杠格式，兼容Windows和NapCat）
+                    # NapCat 支持直接使用绝对路径
+                    abs_path = str(temp_file.resolve()).replace("\\", "/")
+                    new_seg = MessageSegment.image(f"file:///{abs_path}")
                     new_segments.append(new_seg)
-                    logger.debug(f"已将 base64 图片转换为临时文件: {temp_file}")
+                    logger.debug(f"已将 base64 图片转换为临时文件: {abs_path}")
                     continue
                 except Exception as e:
                     logger.warning(f"转换 base64 图片失败: {e}")
@@ -124,32 +126,36 @@ if GROUP_BUFFER_GROUPS:
             _cleanup_old_temp_images()
         except Exception as err:
             logger.warning(f"发送缓冲消息失败: group={group_id}, err={err}")
-            # fallback to文本总结
-            lines = [
-                f"🗒️ 过去{BUFFER_INTERVAL}秒 Bot 回复汇总（共{len(entries)}条）"
-            ]
-            for entry in entries:
-                text_content = "".join(
-                    seg.data.get("text", "")
-                    for seg in entry["message"]
-                    if seg.type == "text"
-                ).strip()
-                if not text_content:
-                    text_content = "[包含非文本内容]"
-                lines.append(f"[{entry['time']}] {text_content}")
-            summary = "\n".join(lines)
+            # fallback: 逐条发送消息（包括图片）
             try:
                 bot = get_bot(bot_id)
+                # 先发送汇总提示
                 await original_call_api(
                     bot,
                     "send_group_msg",
                     group_id=int(group_id),
-                    message=MessageSegment.text(summary),
+                    message=f"🗒️ 过去{BUFFER_INTERVAL}秒 Bot 回复汇总（共{len(entries)}条，转发失败，逐条发送）",
                 )
+                # 逐条发送原始消息
+                for entry in entries:
+                    try:
+                        msg = Message(MessageSegment.text(f"[{entry['time']}] ")) + entry["message"]
+                        await original_call_api(
+                            bot,
+                            "send_group_msg",
+                            group_id=int(group_id),
+                            message=msg,
+                        )
+                        await asyncio.sleep(0.5)  # 避免发送过快
+                    except Exception as send_err:
+                        logger.debug(f"发送单条消息失败: {send_err}")
+                # fallback 发送成功后也清理临时文件
+                _cleanup_old_temp_images()
             except Exception as err2:
                 logger.error(f"发送缓冲文本汇总仍失败: group={group_id}, err={err2}")
-            async with buffer_lock:
-                message_buffers.setdefault(group_id, []).extend(entries)
+                # 只有 fallback 也失败时才把消息放回缓冲
+                async with buffer_lock:
+                    message_buffers.setdefault(group_id, []).extend(entries)
 
     async def _buffer_message(
         bot: Bot, group_id: str, message: Union[str, Message, MessageSegment]
