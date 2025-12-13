@@ -297,20 +297,45 @@ async def handle_witch_trial(bot: Bot, event: GroupMessageEvent, args: Message =
     disagree_count = 0
 
     try:
-        # 尝试获取表情回应统计
-        emoji_data = await bot.call_api("fetch_emoji_like", message_id=message_id)
-        logger.debug(f"表情回应数据: {emoji_data}")
+        # 分别获取两种表情的回应统计
+        # fetch_emoji_like 需要 message_id 和 emojiId 参数
+        try:
+            agree_data = await bot.call_api(
+                "fetch_emoji_like",
+                message_id=message_id,
+                emojiId=EMOJI_AGREE,
+                emojiType="1"  # QQ系统表情
+            )
+            logger.debug(f"同意表情数据: {agree_data}")
+            if isinstance(agree_data, dict):
+                # 尝试多种可能的数据格式
+                agree_count = agree_data.get("result", {}).get("emojiLikesList", [])
+                if isinstance(agree_count, list):
+                    agree_count = len(agree_count)
+                else:
+                    agree_count = agree_data.get("count", 0)
+                # 减去机器人自己贴的
+                agree_count = max(0, agree_count - 1)
+        except Exception as e:
+            logger.debug(f"获取同意表情失败: {e}")
 
-        # 解析数据（根据实际返回格式调整）
-        if isinstance(emoji_data, dict):
-            emoji_list = emoji_data.get("emoji_like_list", []) or emoji_data.get("data", [])
-            for item in emoji_list:
-                emoji_id = str(item.get("emoji_id", ""))
-                count = item.get("count", 0) or len(item.get("user_list", []))
-                if emoji_id == EMOJI_AGREE:
-                    agree_count = count - 1  # 减去机器人自己贴的
-                elif emoji_id == EMOJI_DISAGREE:
-                    disagree_count = count - 1
+        try:
+            disagree_data = await bot.call_api(
+                "fetch_emoji_like",
+                message_id=message_id,
+                emojiId=EMOJI_DISAGREE,
+                emojiType="1"
+            )
+            logger.debug(f"反对表情数据: {disagree_data}")
+            if isinstance(disagree_data, dict):
+                disagree_count = disagree_data.get("result", {}).get("emojiLikesList", [])
+                if isinstance(disagree_count, list):
+                    disagree_count = len(disagree_count)
+                else:
+                    disagree_count = disagree_data.get("count", 0)
+                disagree_count = max(0, disagree_count - 1)
+        except Exception as e:
+            logger.debug(f"获取反对表情失败: {e}")
     except Exception as e:
         logger.warning(f"获取表情回应失败: {e}")
         # API 不支持时使用备用逻辑
