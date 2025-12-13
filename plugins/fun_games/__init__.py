@@ -308,20 +308,12 @@ async def handle_witch_trial(bot: Bot, event: GroupMessageEvent, args: Message =
             )
             logger.info(f"同意表情原始数据: {agree_data}")
             if isinstance(agree_data, dict):
-                # 尝试多种可能的数据格式
-                emoji_list = (
-                    agree_data.get("result", {}).get("emojiLikesList", []) or
-                    agree_data.get("emojiLikesList", []) or
-                    agree_data.get("data", []) or
-                    agree_data.get("likesList", []) or
-                    []
-                )
+                # 数据格式: {'result': 0, 'emojiLikesList': [...]}
+                emoji_list = agree_data.get("emojiLikesList", [])
                 if isinstance(emoji_list, list):
                     agree_count = len(emoji_list)
-                else:
-                    agree_count = int(agree_data.get("count", 0) or 0)
-                # 减去机器人自己贴的
-                agree_count = max(0, agree_count - 1)
+                    # 减去机器人自己贴的
+                    agree_count = max(0, agree_count - 1)
                 logger.info(f"同意票数: {agree_count}")
         except Exception as e:
             logger.warning(f"获取同意表情失败: {e}")
@@ -335,18 +327,12 @@ async def handle_witch_trial(bot: Bot, event: GroupMessageEvent, args: Message =
             )
             logger.info(f"反对表情原始数据: {disagree_data}")
             if isinstance(disagree_data, dict):
-                emoji_list = (
-                    disagree_data.get("result", {}).get("emojiLikesList", []) or
-                    disagree_data.get("emojiLikesList", []) or
-                    disagree_data.get("data", []) or
-                    disagree_data.get("likesList", []) or
-                    []
-                )
+                # 数据格式: {'result': 0, 'emojiLikesList': [...]}
+                emoji_list = disagree_data.get("emojiLikesList", [])
                 if isinstance(emoji_list, list):
                     disagree_count = len(emoji_list)
-                else:
-                    disagree_count = int(disagree_data.get("count", 0) or 0)
-                disagree_count = max(0, disagree_count - 1)
+                    # 减去机器人自己贴的
+                    disagree_count = max(0, disagree_count - 1)
                 logger.info(f"反对票数: {disagree_count}")
         except Exception as e:
             logger.warning(f"获取反对表情失败: {e}")
