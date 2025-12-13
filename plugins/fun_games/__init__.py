@@ -65,21 +65,52 @@ def format_duration(seconds: int) -> str:
         return f"{hours}小时{minutes}分钟" if minutes else f"{hours}小时"
 
 
-def draw_roulette(durations: list, selected_index: int) -> bytes:
+def _get_chinese_font(size: int):
+    """获取支持中文的字体"""
+    # 常见中文字体路径
+    font_paths = [
+        "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",  # 文泉驿正黑
+        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",  # 文泉驿微米黑
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",  # Noto Sans CJK
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc",
+        "C:/Windows/Fonts/msyh.ttc",  # Windows 微软雅黑
+        "C:/Windows/Fonts/simhei.ttf",  # Windows 黑体
+        "/System/Library/Fonts/PingFang.ttc",  # macOS
+    ]
+
+    for path in font_paths:
+        try:
+            return ImageFont.truetype(path, size)
+        except (OSError, IOError):
+            continue
+
+    # 如果都找不到，返回默认字体
+    return ImageFont.load_default()
+
+
+def _draw_roulette_frame(
+    durations: list,
+    rotation_angle: float,
+    size: int = 400,
+    highlight_index: int = -1,
+    show_result: bool = False,
+    result_text: str = ""
+) -> Image.Image:
     """
-    绘制转盘图像
+    绘制转盘的单帧
 
     Args:
-        durations: 时间选项列表（秒）
-        selected_index: 选中的索引
-
-    Returns:
-        PNG 图像数据
+        durations: 时间选项列表
+        rotation_angle: 转盘旋转角度（度）
+        size: 图像尺寸
+        highlight_index: 高亮的扇形索引（-1 表示不高亮）
+        show_result: 是否显示结果文字
+        result_text: 结果文字
     """
-    # 图像尺寸
-    size = 500
     center = size // 2
-    radius = 200
+    radius = int(size * 0.38)
 
     # 创建图像
     img = Image.new("RGBA", (size, size), (255, 255, 255, 255))
@@ -100,24 +131,21 @@ def draw_roulette(durations: list, selected_index: int) -> bytes:
     n = len(durations)
     angle_per_slice = 360 / n
 
-    # 尝试加载字体
-    try:
-        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 16)
-        font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 24)
-    except:
-        font = ImageFont.load_default()
-        font_large = font
+    # 加载字体
+    font = _get_chinese_font(14)
+    font_large = _get_chinese_font(20)
 
-    # 绘制扇形
+    # 绘制扇形（带旋转）
     for i, duration in enumerate(durations):
-        start_angle = i * angle_per_slice - 90  # 从12点方向开始
+        # 计算旋转后的角度
+        start_angle = i * angle_per_slice - 90 + rotation_angle
         end_angle = start_angle + angle_per_slice
 
         color = colors[i % len(colors)]
 
-        # 如果是选中的扇形，加深颜色
-        if i == selected_index:
-            color = tuple(max(0, c - 50) for c in color)
+        # 如果是高亮的扇形，加深颜色
+        if i == highlight_index:
+            color = tuple(max(0, c - 60) for c in color)
 
         # 绘制扇形
         draw.pieslice(
@@ -148,7 +176,7 @@ def draw_roulette(durations: list, selected_index: int) -> bytes:
         )
 
     # 绘制中心圆
-    center_radius = 30
+    center_radius = int(size * 0.06)
     draw.ellipse(
         [center - center_radius, center - center_radius,
          center + center_radius, center + center_radius],
@@ -157,39 +185,136 @@ def draw_roulette(durations: list, selected_index: int) -> bytes:
         width=3
     )
 
-    # 绘制指针（指向选中的扇形）
-    pointer_angle = math.radians(selected_index * angle_per_slice - 90 + angle_per_slice / 2)
-    pointer_length = radius + 30
-    pointer_x = center + pointer_length * math.cos(pointer_angle)
-    pointer_y = center + pointer_length * math.sin(pointer_angle)
-
-    # 绘制指针三角形
-    arrow_size = 20
-    arrow_angle1 = pointer_angle + math.radians(150)
-    arrow_angle2 = pointer_angle - math.radians(150)
-
+    # 绘制固定指针（在12点方向）
+    pointer_y = center - radius - 15
+    arrow_size = 18
     arrow_points = [
-        (pointer_x, pointer_y),
-        (pointer_x + arrow_size * math.cos(arrow_angle1),
-         pointer_y + arrow_size * math.sin(arrow_angle1)),
-        (pointer_x + arrow_size * math.cos(arrow_angle2),
-         pointer_y + arrow_size * math.sin(arrow_angle2)),
+        (center, pointer_y + arrow_size),  # 指向转盘的尖端
+        (center - arrow_size // 2, pointer_y),
+        (center + arrow_size // 2, pointer_y),
     ]
-    draw.polygon(arrow_points, fill=(255, 0, 0), outline=(100, 0, 0))
+    draw.polygon(arrow_points, fill=(255, 0, 0), outline=(150, 0, 0))
 
     # 绘制标题
     title = "禁言大转盘"
     bbox = draw.textbbox((0, 0), title, font=font_large)
     title_w = bbox[2] - bbox[0]
-    draw.text((center - title_w / 2, 20), title, fill=(50, 50, 50), font=font_large)
+    draw.text((center - title_w / 2, 10), title, fill=(50, 50, 50), font=font_large)
 
-    # 绘制结果
-    result_text = f"结果: {format_duration(durations[selected_index])}"
-    bbox = draw.textbbox((0, 0), result_text, font=font_large)
-    result_w = bbox[2] - bbox[0]
-    draw.text((center - result_w / 2, size - 50), result_text, fill=(255, 0, 0), font=font_large)
+    # 绘制结果（如果需要）
+    if show_result and result_text:
+        bbox = draw.textbbox((0, 0), result_text, font=font_large)
+        result_w = bbox[2] - bbox[0]
+        # 绘制背景框
+        padding = 10
+        draw.rectangle(
+            [center - result_w // 2 - padding, size - 45,
+             center + result_w // 2 + padding, size - 10],
+            fill=(255, 255, 200),
+            outline=(200, 150, 0),
+            width=2
+        )
+        draw.text((center - result_w / 2, size - 42), result_text, fill=(200, 0, 0), font=font_large)
 
-    # 导出为 bytes
+    return img
+
+
+def draw_roulette_gif(durations: list, selected_index: int) -> bytes:
+    """
+    绘制转盘动图（GIF）
+
+    Args:
+        durations: 时间选项列表（秒）
+        selected_index: 最终选中的索引
+
+    Returns:
+        GIF 图像数据
+    """
+    frames = []
+    size = 400
+    n = len(durations)
+    angle_per_slice = 360 / n
+
+    # 计算最终停止角度：让选中的扇形对准12点方向的指针
+    # 指针在12点方向（-90度），扇形中心需要对准这个位置
+    target_angle = -(selected_index * angle_per_slice + angle_per_slice / 2)
+
+    # 转盘旋转动画：快速旋转几圈，然后减速停下
+    total_rotation = 360 * 4 + target_angle  # 转4圈多
+
+    # 使用缓动函数（ease-out）
+    num_frames = 30
+
+    for frame_idx in range(num_frames):
+        # 缓动进度 (ease-out cubic)
+        t = frame_idx / (num_frames - 1)
+        eased_t = 1 - (1 - t) ** 3
+
+        current_angle = total_rotation * eased_t
+
+        # 判断当前指针指向哪个扇形
+        normalized_angle = (-current_angle - 90) % 360
+        current_slice = int(normalized_angle / angle_per_slice) % n
+
+        # 最后几帧高亮选中的扇形
+        highlight = selected_index if frame_idx >= num_frames - 5 else -1
+        show_result = frame_idx == num_frames - 1
+        result_text = f"结果: {format_duration(durations[selected_index])}" if show_result else ""
+
+        frame = _draw_roulette_frame(
+            durations,
+            current_angle,
+            size=size,
+            highlight_index=highlight,
+            show_result=show_result,
+            result_text=result_text
+        )
+
+        # 转换为 P 模式以支持 GIF
+        frame_p = frame.convert("P", palette=Image.ADAPTIVE, colors=256)
+        frames.append(frame_p)
+
+    # 最后一帧多停留一会
+    for _ in range(10):
+        frames.append(frames[-1].copy())
+
+    # 导出为 GIF
+    output = BytesIO()
+    frames[0].save(
+        output,
+        format="GIF",
+        save_all=True,
+        append_images=frames[1:],
+        duration=[80] * (num_frames - 1) + [100] * 11,  # 最后停留久一点
+        loop=0
+    )
+    return output.getvalue()
+
+
+def draw_roulette(durations: list, selected_index: int) -> bytes:
+    """
+    绘制转盘静态图像（备用）
+
+    Args:
+        durations: 时间选项列表（秒）
+        selected_index: 选中的索引
+
+    Returns:
+        PNG 图像数据
+    """
+    n = len(durations)
+    angle_per_slice = 360 / n
+    target_angle = -(selected_index * angle_per_slice + angle_per_slice / 2)
+
+    img = _draw_roulette_frame(
+        durations,
+        target_angle,
+        size=400,
+        highlight_index=selected_index,
+        show_result=True,
+        result_text=f"结果: {format_duration(durations[selected_index])}"
+    )
+
     output = BytesIO()
     img.save(output, format="PNG")
     return output.getvalue()
@@ -413,13 +538,19 @@ async def handle_ban_roulette(bot: Bot, event: GroupMessageEvent):
     selected_index = random.randint(0, len(ROULETTE_DURATIONS) - 1)
     selected_duration = ROULETTE_DURATIONS[selected_index]
 
-    # 绘制转盘图像
+    # 绘制转盘动图
     try:
-        img_bytes = draw_roulette(ROULETTE_DURATIONS, selected_index)
+        img_bytes = draw_roulette_gif(ROULETTE_DURATIONS, selected_index)
         img_seg = MessageSegment.image(f"base64://{__import__('base64').b64encode(img_bytes).decode()}")
     except Exception as e:
-        logger.error(f"绘制转盘失败: {e}")
-        img_seg = None
+        logger.error(f"绘制转盘动图失败: {e}")
+        # 失败时尝试静态图
+        try:
+            img_bytes = draw_roulette(ROULETTE_DURATIONS, selected_index)
+            img_seg = MessageSegment.image(f"base64://{__import__('base64').b64encode(img_bytes).decode()}")
+        except Exception as e2:
+            logger.error(f"绘制转盘静态图也失败: {e2}")
+            img_seg = None
 
     # 发送结果消息
     result_msg = Message(f"🎰 禁言大转盘\n\n")
