@@ -29,6 +29,18 @@ GROUP_BUFFER_GROUPS = {
 }
 BUFFER_INTERVAL = int(getattr(config, "group_buffer_interval", 30))
 
+# 消息过滤关键词配置 - 基于功能区分
+INCLUDE_KEYWORDS = {
+    kw.strip()
+    for kw in str(getattr(config, "group_buffer_include_keywords", "") or "").split(",")
+    if kw.strip()
+}
+EXCLUDE_KEYWORDS = {
+    kw.strip()
+    for kw in str(getattr(config, "group_buffer_exclude_keywords", "") or "").split(",")
+    if kw.strip()
+}
+
 # 临时文件目录
 TEMP_IMAGE_DIR = Path(tempfile.gettempdir()) / "qq_bot_buffer_images"
 TEMP_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
@@ -81,6 +93,46 @@ def _cleanup_old_temp_images():
                 f.unlink()
     except Exception as e:
         logger.debug(f"清理临时图片失败: {e}")
+
+
+def _should_buffer_message(message: Union[str, Message, MessageSegment]) -> bool:
+    """
+    判断消息是否应该被缓冲 - 基于功能区分
+
+    过滤规则：
+    1. 优先检查 EXCLUDE_KEYWORDS（排除列表）：包含这些关键词的消息立即发送
+    2. 如果配置了 INCLUDE_KEYWORDS（包含列表）：只有包含这些关键词的消息才缓冲
+    3. 如果都没配置：所有消息都缓冲（默认行为）
+
+    使用场景：
+    - 只配置 INCLUDE: 只缓冲某些功能（如"Steam,美图"），其他功能正常发送
+    - 只配置 EXCLUDE: 所有消息都缓冲，除了某些功能（如"审判,转盘"）
+    - 同时配置: EXCLUDE 优先级更高
+
+    返回 True 表示应该缓冲，False 表示立即发送
+    """
+    # 将消息转换为字符串以便检查关键词
+    msg_text = str(Message(message))
+
+    # 优先检查排除列表（黑名单）
+    if EXCLUDE_KEYWORDS:
+        for keyword in EXCLUDE_KEYWORDS:
+            if keyword in msg_text:
+                logger.debug(f"消息包含排除关键词 '{keyword}'，立即发送")
+                return False  # 在排除列表中，立即发送
+
+    # 检查包含列表（白名单）
+    if INCLUDE_KEYWORDS:
+        for keyword in INCLUDE_KEYWORDS:
+            if keyword in msg_text:
+                logger.debug(f"消息包含缓冲关键词 '{keyword}'，缓冲发送")
+                return True  # 在包含列表中，缓冲发送
+        # 不在包含列表中，立即发送
+        logger.debug("消息不在缓冲关键词列表中，立即发送")
+        return False
+
+    # 默认缓冲所有消息
+    return True
 
 
 if GROUP_BUFFER_GROUPS:
@@ -194,6 +246,13 @@ if GROUP_BUFFER_GROUPS:
             target_group = str(data.get("group_id"))
 
         if target_group and target_group in GROUP_BUFFER_GROUPS:
+            message = data.get("message", "")
+
+            # 检查消息是否应该被缓冲
+            if not _should_buffer_message(message):
+                # 不应该缓冲，立即发送
+                return await original_call_api(self, api, **data)
+
             # 尝试获取当前事件的用户ID
             user_id: str | None = None
             try:
@@ -207,7 +266,7 @@ if GROUP_BUFFER_GROUPS:
             await _buffer_message(
                 self,
                 target_group,
-                data.get("message", ""),
+                message,
                 user_id=user_id,
             )
             return {"status": "buffered"}
