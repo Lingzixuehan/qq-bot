@@ -61,6 +61,16 @@ async def handle_help(bot: Bot, event: MessageEvent):
         MessageSegment.node_custom(
             user_id=bot_id,
             nickname=bot_name,
+            content="🎮 趣味游戏\n\n/魔女审判 @用户 - 发起投票禁言\n  • 群友通过贴表情投票决定是否禁言目标用户\n  • 👌 贴【OK】表示同意，❓ 贴【问号】表示反对\n  • 投票时间结束后自动统计并执行\n\n/禁言大转盘 - 随机禁言自己\n  • 转动转盘，随机抽取禁言时长\n  • 考验你的运气！\n\n💡 所有游戏功能都有冷却时间"
+        ),
+        MessageSegment.node_custom(
+            user_id=bot_id,
+            nickname=bot_name,
+            content="✨ 互动功能\n\n• 戳一戳 - 戳机器人会被戳回去\n• @机器人 - @机器人会随机回复\n\n💡 这些是自动触发的功能，无需命令"
+        ),
+        MessageSegment.node_custom(
+            user_id=bot_id,
+            nickname=bot_name,
             content="📖 其他说明\n\n💡 所有命令都需要使用 / 前缀\n💡 例如：/help\n💡 大部分命令支持群聊和私聊"
         ),
     ]
