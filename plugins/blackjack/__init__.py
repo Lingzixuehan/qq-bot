@@ -319,29 +319,37 @@ async def handle_distribute_points(bot: Bot, event: GroupMessageEvent, args: Mes
     arg_text = args.extract_plain_text().strip()
     if not arg_text:
         await distribute_points_cmd.finish(
-            "用法：/发放积分 <@用户或QQ号> <积分数>\n"
-            "示例：/发放积分 @张三 1000\n"
-            "示例：/发放积分 123456789 1000"
+            "用法：\n"
+            "1. 给单个用户发放：/发放积分 <@用户或QQ号> <积分数>\n"
+            "   示例：/发放积分 @张三 1000\n"
+            "   示例：/发放积分 123456789 1000\n\n"
+            "2. 给全群发放：/发放积分 <积分数>\n"
+            "   示例：/发放积分 500"
         )
 
-    # 解析目标用户和积分
     # 检查消息中是否有@
     at_segments = [seg for seg in args if seg.type == "at"]
 
     try:
+        parts = arg_text.split()
+
+        # 判断是给单个用户还是全群发放
         if at_segments:
-            # 如果有@，从at中获取QQ号
+            # 有@，给单个用户发放
             target_user_id = str(at_segments[0].data["qq"])
-            # 从文本中提取积分数
-            parts = arg_text.split()
-            points = int(parts[-1])  # 取最后一个数字作为积分
-        else:
-            # 没有@，从文本解析
-            parts = arg_text.split()
-            if len(parts) != 2:
-                raise ValueError("参数数量错误")
+            points = int(parts[-1])
+            is_group_distribution = False
+        elif len(parts) == 2:
+            # 两个参数，给单个用户发放
             target_user_id = parts[0]
             points = int(parts[1])
+            is_group_distribution = False
+        elif len(parts) == 1:
+            # 一个参数，给全群发放
+            points = int(parts[0])
+            is_group_distribution = True
+        else:
+            raise ValueError("参数数量错误")
 
         if points <= 0:
             await distribute_points_cmd.finish("❌ 积分必须大于0！")
@@ -351,28 +359,52 @@ async def handle_distribute_points(bot: Bot, event: GroupMessageEvent, args: Mes
     except (ValueError, IndexError):
         await distribute_points_cmd.finish(
             "❌ 参数格式错误！\n"
-            "用法：/发放积分 <@用户或QQ号> <积分数>\n"
-            "示例：/发放积分 @张三 1000"
+            "用法：\n"
+            "• 给单个用户：/发放积分 @用户 积分数\n"
+            "• 给全群：/发放积分 积分数"
         )
 
-    # 获取目标用户昵称
-    try:
-        user_info = await bot.get_group_member_info(
-            group_id=event.group_id,
-            user_id=int(target_user_id)
+    # 给全群发放
+    if is_group_distribution:
+        try:
+            # 获取群成员列表
+            member_list = await bot.get_group_member_list(group_id=event.group_id)
+
+            success_count = 0
+            for member in member_list:
+                member_user_id = str(member["user_id"])
+                points_manager.add_points(group_id, member_user_id, points)
+                success_count += 1
+
+            await distribute_points_cmd.finish(
+                f"✅ 全群积分发放成功！\n"
+                f"━━━━━━━━━━━━━━\n"
+                f"发放人数：{success_count} 人\n"
+                f"每人获得：+{points} 积分"
+            )
+        except Exception as e:
+            await distribute_points_cmd.finish(f"❌ 发放积分失败：{e}")
+
+    # 给单个用户发放
+    else:
+        # 获取目标用户昵称
+        try:
+            user_info = await bot.get_group_member_info(
+                group_id=event.group_id,
+                user_id=int(target_user_id)
+            )
+            target_user_name = user_info.get("card") or user_info.get("nickname", f"用户{target_user_id}")
+        except:
+            target_user_name = f"用户{target_user_id}"
+
+        # 发放积分
+        points_manager.add_points(group_id, target_user_id, points)
+        new_points = points_manager.get_points(group_id, target_user_id)
+
+        await distribute_points_cmd.finish(
+            f"✅ 积分发放成功！\n"
+            f"━━━━━━━━━━━━━━\n"
+            f"目标用户：{target_user_name}\n"
+            f"发放积分：+{points}\n"
+            f"当前积分：{new_points}"
         )
-        target_user_name = user_info.get("card") or user_info.get("nickname", f"用户{target_user_id}")
-    except:
-        target_user_name = f"用户{target_user_id}"
-
-    # 发放积分
-    points_manager.add_points(group_id, target_user_id, points)
-    new_points = points_manager.get_points(group_id, target_user_id)
-
-    await distribute_points_cmd.finish(
-        f"✅ 积分发放成功！\n"
-        f"━━━━━━━━━━━━━━\n"
-        f"目标用户：{target_user_name}\n"
-        f"发放积分：+{points}\n"
-        f"当前积分：{new_points}"
-    )

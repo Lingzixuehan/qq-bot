@@ -83,7 +83,16 @@ class PointsManager:
         Returns:
             积分数量
         """
-        return self.points_data.get(group_id, {}).get(user_id, 0)
+        # 如果用户不存在，初始化为500积分
+        if group_id not in self.points_data:
+            self.points_data[group_id] = {}
+
+        if user_id not in self.points_data[group_id]:
+            self.points_data[group_id][user_id] = 500
+            self._save_points()
+            logger.info(f"用户 {user_id} 在群 {group_id} 获得初始积分 500")
+
+        return self.points_data[group_id][user_id]
 
     def add_points(self, group_id: str, user_id: str, points: int):
         """
@@ -94,12 +103,10 @@ class PointsManager:
             user_id: 用户QQ号
             points: 增加的积分
         """
-        if group_id not in self.points_data:
-            self.points_data[group_id] = {}
-        if user_id not in self.points_data[group_id]:
-            self.points_data[group_id][user_id] = 0
+        # 先调用 get_points 确保用户已初始化（会自动设置为500）
+        current_points = self.get_points(group_id, user_id)
 
-        self.points_data[group_id][user_id] += points
+        self.points_data[group_id][user_id] = current_points + points
         self._save_points()
 
     def set_points(self, group_id: str, user_id: str, points: int):
