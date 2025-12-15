@@ -158,6 +158,27 @@ class PointsManager:
         )
         return ranked[:limit]
 
+    def get_bottom_rank(self, group_id: str, limit: int = 10) -> List[Tuple[str, int]]:
+        """
+        获取积分倒数排行榜
+
+        Args:
+            group_id: 群号
+            limit: 返回数量
+
+        Returns:
+            [(user_id, points), ...] 按积分升序排列（最少的在前）
+        """
+        if group_id not in self.points_data:
+            return []
+
+        ranked = sorted(
+            self.points_data[group_id].items(),
+            key=lambda x: x[1],
+            reverse=False  # 升序排列
+        )
+        return ranked[:limit]
+
     def sign_in(self, group_id: str, user_id: str) -> Tuple[bool, int, str]:
         """
         用户签到

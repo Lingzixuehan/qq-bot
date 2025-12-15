@@ -116,6 +116,48 @@ async def handle_rank(bot: Bot, event: GroupMessageEvent):
     await rank_cmd.finish(msg.strip())
 
 
+# ============== 积分倒数排行榜 ==============
+bottom_rank_cmd = on_command("积分倒数", aliases={"倒数排行", "poorest"}, priority=5, block=True)
+
+
+@bottom_rank_cmd.handle()
+async def handle_bottom_rank(bot: Bot, event: GroupMessageEvent):
+    """积分倒数排行榜"""
+    group_id = str(event.group_id)
+
+    rank_list = points_manager.get_bottom_rank(group_id, limit=10)
+
+    if not rank_list:
+        await bottom_rank_cmd.finish("暂无积分记录！")
+
+    msg = "💸 积分倒数排行榜 BOTTOM 10\n"
+    msg += "━━━━━━━━━━━━━━\n"
+
+    for i, (uid, points) in enumerate(rank_list, 1):
+        try:
+            user_info = await bot.get_group_member_info(
+                group_id=event.group_id,
+                user_id=int(uid)
+            )
+            user_name = user_info.get("card") or user_info.get("nickname", f"用户{uid}")
+        except:
+            user_name = f"用户{uid}"
+
+        # 倒数排行用不同的图标
+        if i == 1:
+            medal = "😭"  # 倒数第一
+        elif i == 2:
+            medal = "😢"  # 倒数第二
+        elif i == 3:
+            medal = "😥"  # 倒数第三
+        else:
+            medal = f"{i}."
+
+        msg += f"{medal} {user_name}：{points} 分\n"
+
+    await bottom_rank_cmd.finish(msg.strip())
+
+
 # ============== 创建21点游戏 ==============
 create_game_cmd = on_command("21点", aliases={"二十一点", "blackjack"}, priority=5, block=True)
 
