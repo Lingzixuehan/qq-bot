@@ -321,7 +321,7 @@ class LoanManager:
 
     def clear_all_loans(self, group_id: str) -> Tuple[bool, str]:
         """
-        平账功能 - 强制清除所有借贷记录（不进行积分转移）
+        平账功能 - 强制清除所有借贷记录并归还积分
 
         Args:
             group_id: 群号
@@ -331,14 +331,34 @@ class LoanManager:
         """
         loan_count = 0
         request_count = 0
+        total_repaid = 0
 
-        # 清除所有借贷记录
+        # 先进行积分归还，然后清除所有借贷记录
         if group_id in self.loans:
             loan_count = len(self.loans[group_id])
+
+            # 遍历所有借贷记录进行结算
+            for borrower_id, loan in list(self.loans[group_id].items()):
+                lender_id = loan["lender_id"]
+                repayment_amount = loan["principal"] + loan["total_interest"]
+
+                # 扣除借款人积分
+                points_manager.add_points(group_id, borrower_id, -repayment_amount)
+
+                # 归还给出借人
+                points_manager.add_points(group_id, lender_id, repayment_amount)
+
+                total_repaid += repayment_amount
+
+                logger.info(
+                    f"平账：用户 {borrower_id} 在群 {group_id} 归还 {repayment_amount} 积分给 {lender_id}"
+                )
+
+            # 清除借贷记录
             del self.loans[group_id]
             self._save_loans()
 
-        # 清除所有借贷请求
+        # 清除所有借贷请求（未完成的借贷申请不需要积分操作）
         if group_id in self.loan_requests:
             request_count = len(self.loan_requests[group_id])
             del self.loan_requests[group_id]
@@ -352,7 +372,8 @@ class LoanManager:
             f"━━━━━━━━━━━━━━\n"
             f"已清除借贷记录：{loan_count} 条\n"
             f"已清除借贷请求：{request_count} 条\n"
-            f"💡 所有债务关系已清零"
+            f"归还积分总计：{total_repaid} 积分\n"
+            f"💡 所有债务已结清，积分已归还"
         )
 
 
