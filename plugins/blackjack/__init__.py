@@ -3,13 +3,22 @@
 包含签到系统和积分系统
 """
 import re
-from nonebot import on_command
+from nonebot import on_command, get_driver
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message, MessageSegment
 from nonebot.params import CommandArg
 from nonebot.log import logger
 
 from .points_manager import points_manager
 from .game import game_manager
+from .loan_manager import loan_manager
+from .sell_manager import sell_manager
+
+# 读取配置
+driver = get_driver()
+config = driver.config
+
+# 最大同时游戏数量（0表示不限制）
+MAX_CONCURRENT_GAMES = int(getattr(config, "blackjack_max_concurrent_games", 3))
 
 
 def parse_at_message(msg: str) -> Message:
@@ -116,6 +125,48 @@ async def handle_rank(bot: Bot, event: GroupMessageEvent):
     await rank_cmd.finish(msg.strip())
 
 
+# ============== 积分倒数排行榜 ==============
+bottom_rank_cmd = on_command("积分倒数", aliases={"倒数排行", "poorest"}, priority=5, block=True)
+
+
+@bottom_rank_cmd.handle()
+async def handle_bottom_rank(bot: Bot, event: GroupMessageEvent):
+    """积分倒数排行榜"""
+    group_id = str(event.group_id)
+
+    rank_list = points_manager.get_bottom_rank(group_id, limit=10)
+
+    if not rank_list:
+        await bottom_rank_cmd.finish("暂无积分记录！")
+
+    msg = "💸 积分倒数排行榜 BOTTOM 10\n"
+    msg += "━━━━━━━━━━━━━━\n"
+
+    for i, (uid, points) in enumerate(rank_list, 1):
+        try:
+            user_info = await bot.get_group_member_info(
+                group_id=event.group_id,
+                user_id=int(uid)
+            )
+            user_name = user_info.get("card") or user_info.get("nickname", f"用户{uid}")
+        except:
+            user_name = f"用户{uid}"
+
+        # 倒数排行用不同的图标
+        if i == 1:
+            medal = "😭"  # 倒数第一
+        elif i == 2:
+            medal = "😢"  # 倒数第二
+        elif i == 3:
+            medal = "😥"  # 倒数第三
+        else:
+            medal = f"{i}."
+
+        msg += f"{medal} {user_name}：{points} 分\n"
+
+    await bottom_rank_cmd.finish(msg.strip())
+
+
 # ============== 创建21点游戏 ==============
 create_game_cmd = on_command("21点", aliases={"二十一点", "blackjack"}, priority=5, block=True)
 
@@ -150,13 +201,14 @@ async def handle_create_game(bot: Bot, event: GroupMessageEvent, args: Message =
     except (ValueError, IndexError):
         await create_game_cmd.finish("❌ 请输入有效的数字！")
 
-    # 检查积分是否足够
-    if not points_manager.has_enough_points(group_id, user_id, bet):
-        current_points = points_manager.get_points(group_id, user_id)
+    # 检查积分是否低于-500（破产线）
+    current_points = points_manager.get_points(group_id, user_id)
+    if current_points < -500:
         await create_game_cmd.finish(
-            f"❌ 积分不足！\n"
-            f"需要：{bet} 积分\n"
-            f"当前：{current_points} 积分"
+            f"❌ 你已破产，无法参与游戏！\n"
+            f"当前积分：{current_points}\n"
+            f"💡 积分低于-500时无法参赛\n"
+            f"💡 可以尝试向其他玩家借贷或卖身"
         )
 
     # 获取用户昵称
@@ -170,7 +222,12 @@ async def handle_create_game(bot: Bot, event: GroupMessageEvent, args: Message =
         user_name = f"用户{user_id}"
 
     # 创建游戏
-    game_id = game_manager.create_game(group_id, user_id, user_name, bet, max_players)
+    success, game_id, error_msg = game_manager.create_game(
+        group_id, user_id, user_name, bet, max_players, MAX_CONCURRENT_GAMES
+    )
+
+    if not success:
+        await create_game_cmd.finish(error_msg)
 
     await create_game_cmd.finish(
         f"🎮 21点游戏已创建！\n"
@@ -215,13 +272,14 @@ async def handle_join_game(bot: Bot, event: GroupMessageEvent, args: Message = C
     if game.creator_id == user_id:
         await join_game_cmd.finish("❌ 不能参加自己创建的游戏！")
 
-    # 检查积分是否足够
-    if not points_manager.has_enough_points(group_id, user_id, game.bet):
-        current_points = points_manager.get_points(group_id, user_id)
+    # 检查积分是否低于-500（破产线）
+    current_points = points_manager.get_points(group_id, user_id)
+    if current_points < -500:
         await join_game_cmd.finish(
-            f"❌ 积分不足！\n"
-            f"需要：{game.bet} 积分\n"
-            f"当前：{current_points} 积分"
+            f"❌ 你已破产，无法参与游戏！\n"
+            f"当前积分：{current_points}\n"
+            f"💡 积分低于-500时无法参赛\n"
+            f"💡 可以尝试向其他玩家借贷或卖身"
         )
 
     # 获取用户昵称
@@ -379,11 +437,6 @@ async def handle_game_list(event: GroupMessageEvent):
 
 
 # ============== 发放积分（管理员功能）==============
-from nonebot import get_driver
-
-driver = get_driver()
-config = driver.config
-
 # 允许发放积分的QQ号列表
 ADMIN_USERS = {
     uid.strip()
@@ -497,3 +550,197 @@ async def handle_distribute_points(bot: Bot, event: GroupMessageEvent, args: Mes
             f"发放积分：+{points}\n"
             f"当前积分：{new_points}"
         )
+
+
+# ============== 借积分 ==============
+borrow_cmd = on_command("借积分", aliases={"借款", "borrow"}, priority=5, block=True)
+
+
+@borrow_cmd.handle()
+async def handle_borrow(bot: Bot, event: GroupMessageEvent, args: Message = CommandArg()):
+    """借积分"""
+    group_id = str(event.group_id)
+    borrower_id = str(event.user_id)
+
+    # 解析参数
+    arg_text = args.extract_plain_text().strip()
+    at_segments = [seg for seg in args if seg.type == "at"]
+
+    if not at_segments:
+        await borrow_cmd.finish(
+            "用法：/借积分 @用户 <金额>\n"
+            "示例：/借积分 @张三 1000\n"
+            "━━━━━━━━━━━━━━\n"
+            "💡 固定利率10%\n"
+            "💡 5局游戏后自动扣除本金+利息"
+        )
+
+    try:
+        lender_id = str(at_segments[0].data["qq"])
+        parts = arg_text.split()
+        amount = int(parts[-1])
+
+        if amount <= 0:
+            await borrow_cmd.finish("❌ 借款金额必须大于0！")
+        if amount > 100000:
+            await borrow_cmd.finish("❌ 单次借款不能超过100000！")
+    except (ValueError, IndexError):
+        await borrow_cmd.finish("❌ 参数格式错误！\n用法：/借积分 @用户 <金额>")
+
+    # 不能向自己借款
+    if borrower_id == lender_id:
+        await borrow_cmd.finish("❌ 不能向自己借款！")
+
+    # 创建借贷
+    success, msg = loan_manager.create_loan(group_id, borrower_id, lender_id, amount)
+
+    await borrow_cmd.finish(msg)
+
+
+# ============== 借贷信息 ==============
+loan_info_cmd = on_command("借贷信息", aliases={"我的借贷", "loan"}, priority=5, block=True)
+
+
+@loan_info_cmd.handle()
+async def handle_loan_info(event: GroupMessageEvent):
+    """查看借贷信息"""
+    group_id = str(event.group_id)
+    user_id = str(event.user_id)
+
+    loan_info = loan_manager.get_loan_info(group_id, user_id)
+
+    if not loan_info:
+        await loan_info_cmd.finish("你当前没有未还清的贷款。")
+
+    await loan_info_cmd.finish(loan_info)
+
+
+# ============== 卖身 ==============
+sell_cmd = on_command("卖身", aliases={"出售", "sell"}, priority=5, block=True)
+
+
+@sell_cmd.handle()
+async def handle_sell(bot: Bot, event: GroupMessageEvent, args: Message = CommandArg()):
+    """卖身申请"""
+    group_id = str(event.group_id)
+    seller_id = str(event.user_id)
+
+    # 解析参数
+    arg_text = args.extract_plain_text().strip()
+    at_segments = [seg for seg in args if seg.type == "at"]
+
+    if not at_segments:
+        await sell_cmd.finish(
+            "用法：/卖身 @用户 <金额> <称号>\n"
+            "示例：/卖身 @张三 1000 小狗\n"
+            "━━━━━━━━━━━━━━\n"
+            "💡 只有积分低于-500才能卖身\n"
+            "💡 买家同意后会修改你的群昵称为\"买家的称号\""
+        )
+
+    try:
+        buyer_id = str(at_segments[0].data["qq"])
+        parts = arg_text.split()
+
+        # 找到金额（第一个数字）和称号（剩余部分）
+        amount = None
+        title_parts = []
+        for part in parts:
+            if amount is None:
+                try:
+                    amount = int(part)
+                    continue
+                except ValueError:
+                    pass
+            title_parts.append(part)
+
+        title = " ".join(title_parts).strip()
+
+        if not amount or amount <= 0:
+            await sell_cmd.finish("❌ 金额必须大于0！")
+        if amount > 100000:
+            await sell_cmd.finish("❌ 金额不能超过100000！")
+        if not title:
+            await sell_cmd.finish("❌ 请输入称号！")
+        if len(title) > 10:
+            await sell_cmd.finish("❌ 称号不能超过10个字符！")
+    except (ValueError, IndexError):
+        await sell_cmd.finish("❌ 参数格式错误！\n用法：/卖身 @用户 <金额> <称号>")
+
+    # 不能向自己卖身
+    if seller_id == buyer_id:
+        await sell_cmd.finish("❌ 不能向自己卖身！")
+
+    # 创建卖身申请
+    success, msg = sell_manager.create_request(group_id, seller_id, buyer_id, amount, title)
+
+    await sell_cmd.finish(msg)
+
+
+# ============== 同意卖身 ==============
+approve_sell_cmd = on_command("同意卖身", aliases={"接受卖身", "accept"}, priority=5, block=True)
+
+
+@approve_sell_cmd.handle()
+async def handle_approve_sell(bot: Bot, event: GroupMessageEvent, args: Message = CommandArg()):
+    """同意卖身申请"""
+    group_id = str(event.group_id)
+    buyer_id = str(event.user_id)
+
+    # 解析参数
+    at_segments = [seg for seg in args if seg.type == "at"]
+
+    if not at_segments:
+        await approve_sell_cmd.finish(
+            "用法：/同意卖身 @用户\n"
+            "示例：/同意卖身 @张三\n"
+            "━━━━━━━━━━━━━━\n"
+            "💡 同意对方的卖身申请"
+        )
+
+    seller_id = str(at_segments[0].data["qq"])
+
+    # 获取买家昵称
+    try:
+        buyer_info = await bot.get_group_member_info(
+            group_id=event.group_id,
+            user_id=int(buyer_id)
+        )
+        buyer_name = buyer_info.get("card") or buyer_info.get("nickname", f"用户{buyer_id}")
+    except:
+        buyer_name = f"用户{buyer_id}"
+
+    # 同意申请
+    success, msg, request = sell_manager.approve_request(group_id, buyer_id, seller_id)
+
+    if not success:
+        await approve_sell_cmd.finish(msg)
+
+    # 修改卖身者的群昵称
+    new_nickname = f"{buyer_name}的{request['title']}"
+    try:
+        await bot.set_group_card(
+            group_id=event.group_id,
+            user_id=int(seller_id),
+            card=new_nickname
+        )
+        msg += f"\n✅ 已修改群昵称为：{new_nickname}"
+    except Exception as e:
+        msg += f"\n❌ 修改群昵称失败：{e}\n💡 可能是权限不足"
+
+    await approve_sell_cmd.finish(msg)
+
+
+# ============== 取消卖身 ==============
+cancel_sell_cmd = on_command("取消卖身", aliases={"撤销卖身", "cancel"}, priority=5, block=True)
+
+
+@cancel_sell_cmd.handle()
+async def handle_cancel_sell(event: GroupMessageEvent):
+    """取消卖身申请"""
+    group_id = str(event.group_id)
+    seller_id = str(event.user_id)
+
+    success, msg = sell_manager.cancel_request(group_id, seller_id)
+
+    await cancel_sell_cmd.finish(msg)
