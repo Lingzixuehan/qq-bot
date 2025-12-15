@@ -15,6 +15,9 @@ class Player:
         self.user_name = user_name
         self.hand = Hand()
         self.finished = False  # 是否已完成操作
+        self.surrendered = False  # 是否投降
+        self.doubled = False  # 是否加倍下注
+        self.actions_taken = 0  # 已采取的操作次数
 
 
 class BlackjackGame:
@@ -129,10 +132,10 @@ class BlackjackGame:
             for player in blackjack_players:
                 player.finished = True
             current = self.players[self.current_player_idx]
-            msg += f"💡 轮到 [AT:{current.user_id}] 【{current.user_name}】\n请选择：/叫牌 或 /停牌"
+            msg += f"💡 轮到 [AT:{current.user_id}] 【{current.user_name}】\n请选择：/叫牌 /停牌 /投降 /加倍"
         else:
             current = self.players[self.current_player_idx]
-            msg += f"💡 轮到 [AT:{current.user_id}] 【{current.user_name}】\n请选择：/叫牌 或 /停牌"
+            msg += f"💡 轮到 [AT:{current.user_id}] 【{current.user_name}】\n请选择：/叫牌 /停牌 /投降 /加倍"
 
         return msg
 
@@ -175,6 +178,7 @@ class BlackjackGame:
         # 抽一张牌
         card = self.deck.deal()
         current_player.hand.add_card(card)
+        current_player.actions_taken += 1
 
         msg = f"🎴 {current_player.user_name} 叫牌：{card}\n"
         msg += f"当前手牌：{current_player.hand} ({current_player.hand.get_value()}点)\n"
@@ -190,7 +194,7 @@ class BlackjackGame:
             else:
                 next_player = self.get_current_player()
                 if next_player:
-                    msg += f"━━━━━━━━━━━━━━\n💡 轮到 [AT:{next_player.user_id}] 【{next_player.user_name}】\n请选择：/叫牌 或 /停牌"
+                    msg += f"━━━━━━━━━━━━━━\n💡 轮到 [AT:{next_player.user_id}] 【{next_player.user_name}】\n请选择：/叫牌 /停牌 /投降 /加倍"
         elif current_player.hand.get_value() == 21:
             msg += "🎯 21点！自动停牌\n"
             current_player.finished = True
@@ -202,7 +206,7 @@ class BlackjackGame:
             else:
                 next_player = self.get_current_player()
                 if next_player:
-                    msg += f"━━━━━━━━━━━━━━\n💡 轮到 [AT:{next_player.user_id}] 【{next_player.user_name}】\n请选择：/叫牌 或 /停牌"
+                    msg += f"━━━━━━━━━━━━━━\n💡 轮到 [AT:{next_player.user_id}] 【{next_player.user_name}】\n请选择：/叫牌 /停牌 /投降 /加倍"
 
         return msg
 
@@ -225,6 +229,7 @@ class BlackjackGame:
 
         msg = f"✋ {current_player.user_name} 停牌\n"
         current_player.finished = True
+        current_player.actions_taken += 1
         self.current_player_idx += 1
 
         # 检查是否所有玩家都完成
@@ -233,7 +238,102 @@ class BlackjackGame:
         else:
             next_player = self.get_current_player()
             if next_player:
-                msg += f"━━━━━━━━━━━━━━\n💡 轮到 [AT:{next_player.user_id}] 【{next_player.user_name}】\n请选择：/叫牌 或 /停牌"
+                msg += f"━━━━━━━━━━━━━━\n💡 轮到 [AT:{next_player.user_id}] 【{next_player.user_name}】\n请选择：/叫牌 /停牌 /投降 /加倍"
+
+        return msg
+
+    def surrender(self, user_id: str) -> str:
+        """
+        玩家投降
+
+        Args:
+            user_id: 用户ID
+
+        Returns:
+            投降结果消息
+        """
+        current_player = self.get_current_player()
+        if not current_player:
+            return "❌ 现在不是你的回合！"
+
+        if current_player.user_id != user_id:
+            return "❌ 现在不是你的回合！"
+
+        # 只能在第一次操作时投降
+        if current_player.actions_taken > 0:
+            return "❌ 只能在初始手牌时投降！"
+
+        msg = f"🏳️ {current_player.user_name} 投降\n"
+        msg += f"损失一半赌注：{self.bet // 2} 积分\n"
+
+        current_player.surrendered = True
+        current_player.finished = True
+        current_player.actions_taken += 1
+        self.current_player_idx += 1
+
+        # 检查是否所有玩家都完成
+        if self._all_players_finished():
+            msg += self._dealer_play()
+        else:
+            next_player = self.get_current_player()
+            if next_player:
+                msg += f"━━━━━━━━━━━━━━\n💡 轮到 [AT:{next_player.user_id}] 【{next_player.user_name}】\n请选择：/叫牌 /停牌 /投降 /加倍"
+
+        return msg
+
+    def double_down(self, user_id: str) -> str:
+        """
+        玩家加倍下注
+
+        Args:
+            user_id: 用户ID
+
+        Returns:
+            加倍结果消息
+        """
+        current_player = self.get_current_player()
+        if not current_player:
+            return "❌ 现在不是你的回合！"
+
+        if current_player.user_id != user_id:
+            return "❌ 现在不是你的回合！"
+
+        # 只能在第一次操作时加倍
+        if current_player.actions_taken > 0:
+            return "❌ 只能在初始手牌时加倍！"
+
+        # 检查积分是否足够（需要额外的赌注）
+        if not points_manager.has_enough_points(self.group_id, user_id, self.bet):
+            return f"❌ 积分不足！加倍需要额外 {self.bet} 积分"
+
+        # 标记加倍
+        current_player.doubled = True
+        current_player.actions_taken += 1
+
+        # 强制抽一张牌
+        card = self.deck.deal()
+        current_player.hand.add_card(card)
+
+        msg = f"💰 {current_player.user_name} 加倍下注！\n"
+        msg += f"额外赌注：{self.bet} 积分\n"
+        msg += f"抽到：{card}\n"
+        msg += f"当前手牌：{current_player.hand} ({current_player.hand.get_value()}点)\n"
+
+        # 检查是否爆牌
+        if current_player.hand.is_bust():
+            msg += f"💥 爆牌了！\n"
+
+        # 加倍后自动停牌
+        current_player.finished = True
+        self.current_player_idx += 1
+
+        # 检查是否所有玩家都完成
+        if self._all_players_finished():
+            msg += "\n" + self._dealer_play()
+        else:
+            next_player = self.get_current_player()
+            if next_player:
+                msg += f"━━━━━━━━━━━━━━\n💡 轮到 [AT:{next_player.user_id}] 【{next_player.user_name}】\n请选择：/叫牌 /停牌 /投降 /加倍"
 
         return msg
 
@@ -305,22 +405,38 @@ class BlackjackGame:
             player_value = player.hand.get_value()
             player_bust = player.hand.is_bust()
 
+            # 处理投降
+            if player.surrendered:
+                half_bet = self.bet // 2
+                points_manager.add_points(self.group_id, player.user_id, -half_bet)
+                total_creator_change += half_bet
+                msg += f"🏳️ {player.user_name} 投降 -{half_bet} 积分\n"
+                continue
+
+            # 确定实际赌注（加倍则为双倍）
+            actual_bet = self.bet * 2 if player.doubled else self.bet
+
             # 计算奖励积分（基础赌注 + 随机奖励0-10%）
             bonus_rate = random.randint(0, 10) / 100
-            bonus = int(self.bet * bonus_rate)
-            total_win = self.bet + bonus
+            bonus = int(actual_bet * bonus_rate)
+            total_win = actual_bet + bonus
 
             # 判断胜负并结算
             if player_bust:
                 # 玩家爆牌，庄家赢
-                points_manager.add_points(self.group_id, player.user_id, -self.bet)
-                total_creator_change += self.bet
-                msg += f"💸 {player.user_name} -{self.bet} 积分\n"
+                points_manager.add_points(self.group_id, player.user_id, -actual_bet)
+                total_creator_change += actual_bet
+                msg += f"💸 {player.user_name} -{actual_bet} 积分"
+                if player.doubled:
+                    msg += " (加倍)"
+                msg += "\n"
             elif creator_bust:
                 # 庄家爆牌，玩家赢
                 points_manager.add_points(self.group_id, player.user_id, total_win)
                 total_creator_change -= total_win
                 msg += f"🏆 {player.user_name} +{total_win} 积分"
+                if player.doubled:
+                    msg += " (加倍)"
                 if bonus > 0:
                     msg += f" (奖励+{bonus})"
                 msg += "\n"
@@ -329,15 +445,22 @@ class BlackjackGame:
                 points_manager.add_points(self.group_id, player.user_id, total_win)
                 total_creator_change -= total_win
                 msg += f"🏆 {player.user_name} +{total_win} 积分"
+                if player.doubled:
+                    msg += " (加倍)"
                 if bonus > 0:
                     msg += f" (奖励+{bonus})"
                 msg += "\n"
             elif player_value < creator_value:
                 # 庄家赢
-                points_manager.add_points(self.group_id, player.user_id, -self.bet)
-                total_creator_change += self.bet
-                msg += f"💸 {player.user_name} -{self.bet} 积分\n"
-            # 平局，不扣分
+                points_manager.add_points(self.group_id, player.user_id, -actual_bet)
+                total_creator_change += actual_bet
+                msg += f"💸 {player.user_name} -{actual_bet} 积分"
+                if player.doubled:
+                    msg += " (加倍)"
+                msg += "\n"
+            # 平局，不扣分（但加倍的话也不退额外赌注）
+            elif player.doubled:
+                msg += f"🤝 {player.user_name} 平局 (加倍)\n"
 
         # 更新庄家积分
         if total_creator_change != 0:

@@ -300,6 +300,58 @@ async def handle_stand(event: GroupMessageEvent):
     await stand_cmd.finish(parse_at_message(msg))
 
 
+# ============== 投降 ==============
+surrender_cmd = on_command("投降", aliases={"认输"}, priority=5, block=True)
+
+
+@surrender_cmd.handle()
+async def handle_surrender(event: GroupMessageEvent):
+    """投降"""
+    group_id = str(event.group_id)
+    user_id = str(event.user_id)
+
+    # 获取用户正在进行的游戏
+    game = game_manager.get_player_game(group_id, user_id)
+    if not game:
+        await surrender_cmd.finish("❌ 你没有正在进行的游戏！")
+
+    # 投降
+    msg = game.surrender(user_id)
+
+    # 结算积分
+    if game.finished:
+        msg += game.settle()
+
+    # 解析并发送消息（处理@标记）
+    await surrender_cmd.finish(parse_at_message(msg))
+
+
+# ============== 加倍 ==============
+double_cmd = on_command("加倍", aliases={"双倍", "加注"}, priority=5, block=True)
+
+
+@double_cmd.handle()
+async def handle_double(event: GroupMessageEvent):
+    """加倍下注"""
+    group_id = str(event.group_id)
+    user_id = str(event.user_id)
+
+    # 获取用户正在进行的游戏
+    game = game_manager.get_player_game(group_id, user_id)
+    if not game:
+        await double_cmd.finish("❌ 你没有正在进行的游戏！")
+
+    # 加倍
+    msg = game.double_down(user_id)
+
+    # 结算积分
+    if game.finished:
+        msg += game.settle()
+
+    # 解析并发送消息（处理@标记）
+    await double_cmd.finish(parse_at_message(msg))
+
+
 # ============== 游戏列表 ==============
 game_list_cmd = on_command("游戏列表", aliases={"21点列表"}, priority=5, block=True)
 
