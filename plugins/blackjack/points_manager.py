@@ -208,17 +208,8 @@ class PointsManager:
         if record["last_sign_date"] == today:
             return False, 0, "你今天已经签到过了！"
 
-        # 计算获得的积分（随机1-20分，带概率）
-        import random
-        rand = random.random()
-        if rand < 0.5:  # 50% 概率
-            earned_points = random.randint(1, 5)
-        elif rand < 0.8:  # 30% 概率
-            earned_points = random.randint(6, 10)
-        elif rand < 0.95:  # 15% 概率
-            earned_points = random.randint(11, 15)
-        else:  # 5% 概率
-            earned_points = random.randint(16, 20)
+        # 固定签到奖励1000积分
+        earned_points = 1000
 
         # 检查连续签到
         yesterday = (datetime.now().date() - __import__("datetime").timedelta(days=1)).isoformat()
@@ -227,8 +218,8 @@ class PointsManager:
         else:
             record["continuous_count"] = 1
 
-        # 连续签到奖励（每连续5天额外+5分）
-        bonus = (record["continuous_count"] // 5) * 5
+        # 连续签到奖励（每连续5天额外+500分）
+        bonus = (record["continuous_count"] // 5) * 500
         total_earned = earned_points + bonus
 
         # 更新记录

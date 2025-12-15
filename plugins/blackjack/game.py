@@ -470,6 +470,12 @@ class BlackjackGame:
             else:
                 msg += f"━━━━━━━━━━━━━━\n💸 庄家 {self.creator_name} {total_creator_change} 积分"
 
+        # 更新借贷局数
+        from .loan_manager import loan_manager
+        for player in self.players:
+            loan_manager.increment_games_played(self.group_id, player.user_id)
+        loan_manager.increment_games_played(self.group_id, self.creator_id)
+
         return msg
 
 
