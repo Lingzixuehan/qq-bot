@@ -482,7 +482,27 @@ class GameManager:
         self.games: Dict[str, Dict[int, BlackjackGame]] = {}
         self.next_game_id: Dict[str, int] = {}
 
-    def create_game(self, group_id: str, creator_id: str, creator_name: str, bet: int, max_players: int = 1) -> int:
+    def get_active_game_count(self, group_id: str) -> int:
+        """
+        获取群内正在进行和等待中的游戏数量
+
+        Args:
+            group_id: 群号
+
+        Returns:
+            游戏数量
+        """
+        if group_id not in self.games:
+            return 0
+
+        count = 0
+        for game in self.games[group_id].values():
+            # 统计未完成的游戏（包括等待中和进行中）
+            if not game.finished:
+                count += 1
+        return count
+
+    def create_game(self, group_id: str, creator_id: str, creator_name: str, bet: int, max_players: int = 1, max_concurrent_games: int = 0) -> Tuple[bool, int, str]:
         """
         创建游戏
 
@@ -492,10 +512,17 @@ class GameManager:
             creator_name: 创建者昵称
             bet: 赌注
             max_players: 最大玩家数
+            max_concurrent_games: 最大同时游戏数（0表示不限制）
 
         Returns:
-            游戏ID
+            (是否成功, 游戏ID, 消息)
         """
+        # 检查同时游戏数量限制
+        if max_concurrent_games > 0:
+            active_count = self.get_active_game_count(group_id)
+            if active_count >= max_concurrent_games:
+                return False, 0, f"❌ 当前群内已有 {active_count} 个游戏进行中，达到上限（{max_concurrent_games}）！\n请等待其他游戏结束后再创建"
+
         if group_id not in self.games:
             self.games[group_id] = {}
             self.next_game_id[group_id] = 1
@@ -504,7 +531,7 @@ class GameManager:
         self.games[group_id][game_id] = BlackjackGame(group_id, creator_id, creator_name, bet, max_players)
         self.next_game_id[group_id] += 1
 
-        return game_id
+        return True, game_id, ""
 
     def get_game(self, group_id: str, game_id: int) -> Optional[BlackjackGame]:
         """

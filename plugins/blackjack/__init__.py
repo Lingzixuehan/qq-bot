@@ -3,13 +3,20 @@
 包含签到系统和积分系统
 """
 import re
-from nonebot import on_command
+from nonebot import on_command, get_driver
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message, MessageSegment
 from nonebot.params import CommandArg
 from nonebot.log import logger
 
 from .points_manager import points_manager
 from .game import game_manager
+
+# 读取配置
+driver = get_driver()
+config = driver.config
+
+# 最大同时游戏数量（0表示不限制）
+MAX_CONCURRENT_GAMES = int(getattr(config, "blackjack_max_concurrent_games", 3))
 
 
 def parse_at_message(msg: str) -> Message:
@@ -212,7 +219,12 @@ async def handle_create_game(bot: Bot, event: GroupMessageEvent, args: Message =
         user_name = f"用户{user_id}"
 
     # 创建游戏
-    game_id = game_manager.create_game(group_id, user_id, user_name, bet, max_players)
+    success, game_id, error_msg = game_manager.create_game(
+        group_id, user_id, user_name, bet, max_players, MAX_CONCURRENT_GAMES
+    )
+
+    if not success:
+        await create_game_cmd.finish(error_msg)
 
     await create_game_cmd.finish(
         f"🎮 21点游戏已创建！\n"
@@ -421,11 +433,6 @@ async def handle_game_list(event: GroupMessageEvent):
 
 
 # ============== 发放积分（管理员功能）==============
-from nonebot import get_driver
-
-driver = get_driver()
-config = driver.config
-
 # 允许发放积分的QQ号列表
 ADMIN_USERS = {
     uid.strip()
