@@ -72,10 +72,10 @@ async def handle_start_game(bot: Bot, event: GroupMessageEvent, args: Message = 
         bullets = int(parts[1])
 
         # 验证参数
-        if capacity < 1 or capacity > 20:
-            await start_game.finish("❌ 弹匣容量必须在 1-20 之间！")
-        if bullets < 1 or bullets > capacity:
-            await start_game.finish("❌ 子弹数量必须在 1 到弹匣容量之间！")
+        if capacity < 2 or capacity > 20:
+            await start_game.finish("❌ 弹匣容量必须在 2-20 之间！")
+        if bullets < 1 or bullets >= capacity:
+            await start_game.finish("❌ 子弹数量必须在 1 到弹匣容量-1 之间！\n至少要留一个空位，不然没法玩！")
 
     except (ValueError, IndexError):
         await start_game.finish(
