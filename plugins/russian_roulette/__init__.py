@@ -17,6 +17,13 @@ config = driver.config
 # 中弹后的禁言时长（秒）
 ROULETTE_BAN_DURATION = int(getattr(config, "russian_roulette_ban_duration", 60))
 
+# 允许强制停止游戏的QQ号列表
+STOP_USERS = {
+    uid.strip()
+    for uid in str(getattr(config, "russian_roulette_stop_users", "") or "").split(",")
+    if uid.strip()
+}
+
 # ============== 游戏数据 ==============
 # 游戏状态: {group_id: {"capacity": m, "bullets": n, "chambers": [bool...], "current": 0}}
 active_games: Dict[str, dict] = {}
@@ -241,25 +248,37 @@ end_game = on_command("结束轮盘", aliases={"终止游戏"}, priority=5, bloc
 
 @end_game.handle()
 async def handle_end_game(bot: Bot, event: GroupMessageEvent):
-    """结束当前游戏（仅管理员）"""
+    """结束当前游戏（管理员或授权用户）"""
     group_id = str(event.group_id)
     user_id = str(event.user_id)
 
     if group_id not in active_games:
         await end_game.finish("当前没有进行中的游戏！")
 
-    # 检查权限：群主或管理员
-    try:
-        member_info = await bot.get_group_member_info(
-            group_id=event.group_id,
-            user_id=int(user_id)
-        )
-        role = member_info.get("role", "member")
-        if role not in ["owner", "admin"]:
-            await end_game.finish("❌ 只有管理员才能结束游戏！")
-    except:
-        await end_game.finish("❌ 获取权限信息失败")
+    # 检查权限：特定QQ号或群主/管理员
+    has_permission = False
+
+    # 1. 检查是否在授权用户列表中
+    if user_id in STOP_USERS:
+        has_permission = True
+        logger.info(f"用户 {user_id} 作为授权用户终止了游戏")
+    else:
+        # 2. 检查是否是群主或管理员
+        try:
+            member_info = await bot.get_group_member_info(
+                group_id=event.group_id,
+                user_id=int(user_id)
+            )
+            role = member_info.get("role", "member")
+            if role in ["owner", "admin"]:
+                has_permission = True
+                logger.info(f"管理员 {user_id} 终止了游戏")
+        except Exception as e:
+            logger.error(f"获取权限信息失败: {e}")
+
+    if not has_permission:
+        await end_game.finish("❌ 只有管理员或授权用户才能结束游戏！")
 
     # 结束游戏
     active_games.pop(group_id, None)
-    await end_game.finish("🛑 游戏已被管理员终止")
+    await end_game.finish("🛑 游戏已被终止")
