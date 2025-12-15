@@ -124,6 +124,18 @@ async def handle_shoot(bot: Bot, event: GroupMessageEvent):
     # 移动到下一个位置
     game["current"] = (current_pos + 1) % game["capacity"]
 
+    # 检查剩余弹匣是否全是子弹（从当前位置开始）
+    def check_all_bullets_remaining():
+        """检查剩余未打过的位置是否全是子弹"""
+        remaining_positions = []
+        for i in range(game["capacity"]):
+            idx = (game["current"] + i) % game["capacity"]
+            # 如果这个位置还没被打过（还有子弹计数）
+            if game["chambers"][idx]:
+                remaining_positions.append(idx)
+        # 如果剩余子弹数等于剩余未检查的位置数，说明全是子弹
+        return len(remaining_positions) == game["bullets"]
+
     if is_bullet:
         # 中弹！
         game["bullets"] -= 1
@@ -155,14 +167,42 @@ async def handle_shoot(bot: Bot, event: GroupMessageEvent):
             )
         except Exception as e:
             logger.error(f"禁言失败: {e}")
+            # 幽默的异常处理
+            error_msg = str(e).lower()
+            if "owner" in error_msg or "群主" in error_msg or "权限" in error_msg:
+                funny_responses = [
+                    "⚠️ 对方是老资历，哎我服了真的是老六",
+                    "⚠️ 群主大人中弹了...可惜我禁言不了大佬",
+                    "⚠️ 想禁言群主？我可不敢，怕被踢出群",
+                    "⚠️ 禁言失败！对方段位太高了",
+                ]
+            else:
+                funny_responses = [
+                    "⚠️ 禁言失败！可能是权限不足",
+                    "⚠️ 想禁言但是失败了，尴尬...",
+                    "⚠️ 禁言操作被拦截，对方有保护罩",
+                ]
             await bot.send_group_msg(
                 group_id=event.group_id,
-                message=f"⚠️ 禁言执行失败：{str(e)[:50]}"
+                message=random.choice(funny_responses)
             )
 
     else:
         # 没中弹，安全
         remaining_bullets = game["bullets"]
+
+        # 检查剩余弹匣是否全是子弹
+        if remaining_bullets > 0 and check_all_bullets_remaining():
+            # 剩下的全是子弹，直接结束游戏
+            active_games.pop(group_id, None)
+            await shoot.finish(
+                f"✅ Click...\n"
+                f"━━━━━━━━━━━━━━\n"
+                f"😮‍💨 这次安全！\n"
+                f"⚠️ 但是...剩余 {remaining_bullets} 发全是子弹！\n"
+                f"🛑 游戏强制结束，没人想继续送死吧？"
+            )
+
         await shoot.finish(
             f"✅ Click...\n"
             f"━━━━━━━━━━━━━━\n"
