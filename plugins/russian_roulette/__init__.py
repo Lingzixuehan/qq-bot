@@ -97,6 +97,7 @@ async def handle_start_game(bot: Bot, event: GroupMessageEvent, args: Message = 
         "chambers": chambers,
         "current": 0,  # 当前弹匣位置
         "total_bullets": bullets,  # 总子弹数
+        "fired_positions": set(),  # 已经打过的位置
     }
 
     await start_game.finish(
@@ -128,20 +129,28 @@ async def handle_shoot(bot: Bot, event: GroupMessageEvent):
     current_pos = game["current"]
     is_bullet = game["chambers"][current_pos]
 
+    # 记录这个位置已经打过
+    game["fired_positions"].add(current_pos)
+
     # 移动到下一个位置
     game["current"] = (current_pos + 1) % game["capacity"]
 
-    # 检查剩余弹匣是否全是子弹（从当前位置开始）
+    # 检查剩余弹匣是否全是子弹
     def check_all_bullets_remaining():
         """检查剩余未打过的位置是否全是子弹"""
-        remaining_positions = []
+        fired = game["fired_positions"]
+        remaining_bullets = 0
+        remaining_total = 0
+
+        # 统计未打过的位置中有多少子弹
         for i in range(game["capacity"]):
-            idx = (game["current"] + i) % game["capacity"]
-            # 如果这个位置还没被打过（还有子弹计数）
-            if game["chambers"][idx]:
-                remaining_positions.append(idx)
-        # 如果剩余子弹数等于剩余未检查的位置数，说明全是子弹
-        return len(remaining_positions) == game["bullets"]
+            if i not in fired:  # 这个位置还没打过
+                remaining_total += 1
+                if game["chambers"][i]:  # 这个位置有子弹
+                    remaining_bullets += 1
+
+        # 如果剩余位置数 > 0 且全是子弹，返回 True
+        return remaining_total > 0 and remaining_bullets == remaining_total and remaining_bullets == game["bullets"]
 
     if is_bullet:
         # 中弹！
