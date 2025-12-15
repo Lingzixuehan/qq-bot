@@ -319,6 +319,42 @@ class LoanManager:
             f"剩余：{remaining_games} 局游戏后自动扣除"
         )
 
+    def clear_all_loans(self, group_id: str) -> Tuple[bool, str]:
+        """
+        平账功能 - 强制清除所有借贷记录（不进行积分转移）
+
+        Args:
+            group_id: 群号
+
+        Returns:
+            (是否成功, 消息)
+        """
+        loan_count = 0
+        request_count = 0
+
+        # 清除所有借贷记录
+        if group_id in self.loans:
+            loan_count = len(self.loans[group_id])
+            del self.loans[group_id]
+            self._save_loans()
+
+        # 清除所有借贷请求
+        if group_id in self.loan_requests:
+            request_count = len(self.loan_requests[group_id])
+            del self.loan_requests[group_id]
+            self._save_loan_requests()
+
+        if loan_count == 0 and request_count == 0:
+            return True, "✅ 当前群没有任何借贷记录！"
+
+        return True, (
+            f"✅ 平账成功！\n"
+            f"━━━━━━━━━━━━━━\n"
+            f"已清除借贷记录：{loan_count} 条\n"
+            f"已清除借贷请求：{request_count} 条\n"
+            f"💡 所有债务关系已清零"
+        )
+
 
 # 全局借贷管理器实例
 loan_manager = LoanManager()

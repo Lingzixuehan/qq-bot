@@ -664,6 +664,26 @@ async def handle_cancel_loan(event: GroupMessageEvent):
     await cancel_loan_cmd.finish(msg)
 
 
+# ============== 平账（管理员功能）==============
+clear_loans_cmd = on_command("平账", aliases={"清除借贷", "clear_loans"}, priority=5, block=True)
+
+
+@clear_loans_cmd.handle()
+async def handle_clear_loans(event: GroupMessageEvent):
+    """平账 - 强制清除所有借贷记录（仅管理员）"""
+    group_id = str(event.group_id)
+    user_id = str(event.user_id)
+
+    # 检查权限
+    if user_id not in ADMIN_USERS:
+        await clear_loans_cmd.finish("❌ 只有授权用户才能使用平账功能！")
+
+    # 清除所有借贷
+    success, msg = loan_manager.clear_all_loans(group_id)
+
+    await clear_loans_cmd.finish(msg)
+
+
 # ============== 卖身 ==============
 sell_cmd = on_command("卖身", aliases={"出售", "sell"}, priority=5, block=True)
 
