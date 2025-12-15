@@ -131,8 +131,15 @@ class BlackjackGame:
         elif blackjack_players:
             for player in blackjack_players:
                 player.finished = True
-            current = self.players[self.current_player_idx]
-            msg += f"💡 轮到 [AT:{current.user_id}] 【{current.user_name}】\n请选择：/叫牌 /停牌 /投降 /加倍"
+
+            # 找到第一个需要操作的玩家（跳过黑杰克玩家）
+            current = self.get_current_player()
+            if current:
+                msg += f"💡 轮到 [AT:{current.user_id}] 【{current.user_name}】\n请选择：/叫牌 /停牌 /投降 /加倍"
+            else:
+                # 所有玩家都是黑杰克，直接结束
+                msg += "🎊 所有玩家都是黑杰克！\n"
+                self.finished = True
         else:
             current = self.players[self.current_player_idx]
             msg += f"💡 轮到 [AT:{current.user_id}] 【{current.user_name}】\n请选择：/叫牌 /停牌 /投降 /加倍"
