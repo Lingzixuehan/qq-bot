@@ -2,13 +2,47 @@
 21点游戏插件
 包含签到系统和积分系统
 """
+import re
 from nonebot import on_command
-from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message
+from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message, MessageSegment
 from nonebot.params import CommandArg
 from nonebot.log import logger
 
 from .points_manager import points_manager
 from .game import game_manager
+
+
+def parse_at_message(msg: str) -> Message:
+    """
+    解析消息中的 [AT:user_id] 标记并转换为@消息段
+
+    Args:
+        msg: 原始消息文本
+
+    Returns:
+        Message对象
+    """
+    result = Message()
+    last_end = 0
+
+    # 查找所有 [AT:user_id] 标记
+    pattern = r'\[AT:(\d+)\]'
+    for match in re.finditer(pattern, msg):
+        # 添加标记之前的文本
+        if match.start() > last_end:
+            result.append(MessageSegment.text(msg[last_end:match.start()]))
+
+        # 添加@消息段
+        user_id = match.group(1)
+        result.append(MessageSegment.at(user_id))
+
+        last_end = match.end()
+
+    # 添加剩余文本
+    if last_end < len(msg):
+        result.append(MessageSegment.text(msg[last_end:]))
+
+    return result
 
 # ============== 签到功能 ==============
 sign_cmd = on_command("签到", aliases={"打卡", "qiandao"}, priority=5, block=True)
@@ -210,7 +244,8 @@ async def handle_join_game(bot: Bot, event: GroupMessageEvent, args: Message = C
     if game.finished:
         msg += game.settle()
 
-    await join_game_cmd.finish(msg)
+    # 解析并发送消息（处理@标记）
+    await join_game_cmd.finish(parse_at_message(msg))
 
 
 # ============== 叫牌 ==============
@@ -235,7 +270,8 @@ async def handle_hit(event: GroupMessageEvent):
     if game.finished:
         msg += game.settle()
 
-    await hit_cmd.finish(msg)
+    # 解析并发送消息（处理@标记）
+    await hit_cmd.finish(parse_at_message(msg))
 
 
 # ============== 停牌 ==============
@@ -260,7 +296,8 @@ async def handle_stand(event: GroupMessageEvent):
     if game.finished:
         msg += game.settle()
 
-    await stand_cmd.finish(msg)
+    # 解析并发送消息（处理@标记）
+    await stand_cmd.finish(parse_at_message(msg))
 
 
 # ============== 游戏列表 ==============

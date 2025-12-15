@@ -128,9 +128,11 @@ class BlackjackGame:
         elif blackjack_players:
             for player in blackjack_players:
                 player.finished = True
-            msg += f"💡 轮到 【{self.players[self.current_player_idx].user_name}】\n请选择：/叫牌 或 /停牌"
+            current = self.players[self.current_player_idx]
+            msg += f"💡 轮到 [AT:{current.user_id}] 【{current.user_name}】\n请选择：/叫牌 或 /停牌"
         else:
-            msg += f"💡 轮到 【{self.players[self.current_player_idx].user_name}】\n请选择：/叫牌 或 /停牌"
+            current = self.players[self.current_player_idx]
+            msg += f"💡 轮到 [AT:{current.user_id}] 【{current.user_name}】\n请选择：/叫牌 或 /停牌"
 
         return msg
 
@@ -188,7 +190,7 @@ class BlackjackGame:
             else:
                 next_player = self.get_current_player()
                 if next_player:
-                    msg += f"━━━━━━━━━━━━━━\n💡 轮到 【{next_player.user_name}】\n请选择：/叫牌 或 /停牌"
+                    msg += f"━━━━━━━━━━━━━━\n💡 轮到 [AT:{next_player.user_id}] 【{next_player.user_name}】\n请选择：/叫牌 或 /停牌"
         elif current_player.hand.get_value() == 21:
             msg += "🎯 21点！自动停牌\n"
             current_player.finished = True
@@ -200,7 +202,7 @@ class BlackjackGame:
             else:
                 next_player = self.get_current_player()
                 if next_player:
-                    msg += f"━━━━━━━━━━━━━━\n💡 轮到 【{next_player.user_name}】\n请选择：/叫牌 或 /停牌"
+                    msg += f"━━━━━━━━━━━━━━\n💡 轮到 [AT:{next_player.user_id}] 【{next_player.user_name}】\n请选择：/叫牌 或 /停牌"
 
         return msg
 
@@ -231,7 +233,7 @@ class BlackjackGame:
         else:
             next_player = self.get_current_player()
             if next_player:
-                msg += f"━━━━━━━━━━━━━━\n💡 轮到 【{next_player.user_name}】\n请选择：/叫牌 或 /停牌"
+                msg += f"━━━━━━━━━━━━━━\n💡 轮到 [AT:{next_player.user_id}] 【{next_player.user_name}】\n请选择：/叫牌 或 /停牌"
 
         return msg
 
