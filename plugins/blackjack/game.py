@@ -1,8 +1,9 @@
 """
 21点游戏逻辑 - 支持多人模式
 """
+import asyncio
 import random
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Callable
 from .card import Deck, Hand
 from .points_manager import points_manager
 
@@ -51,6 +52,11 @@ class BlackjackGame:
         self.started = False
         self.finished = False
         self.current_player_idx = 0  # 当前操作的玩家索引
+
+        # 超时相关
+        self.timeout_task: Optional[asyncio.Task] = None  # 当前的超时任务
+        self.timeout_callback: Optional[Callable] = None  # 超时回调函数
+        self.timeout_duration = 30  # 超时时间（秒）
 
     def add_player(self, player_id: str, player_name: str) -> Tuple[bool, str]:
         """
@@ -144,6 +150,10 @@ class BlackjackGame:
             current = self.players[self.current_player_idx]
             msg += f"💡 轮到 [AT:{current.user_id}] 【{current.user_name}】\n请选择：/叫牌 /停牌 /投降 /加倍"
 
+        # 如果游戏未结束，启动超时计时
+        if not self.finished:
+            self.start_timeout()
+
         return msg
 
     def get_current_player(self) -> Optional[Player]:
@@ -182,6 +192,9 @@ class BlackjackGame:
         if current_player.user_id != user_id:
             return "现在不是你的回合！"
 
+        # 取消超时任务
+        self.cancel_timeout()
+
         # 抽一张牌
         card = self.deck.deal()
         current_player.hand.add_card(card)
@@ -202,6 +215,8 @@ class BlackjackGame:
                 next_player = self.get_current_player()
                 if next_player:
                     msg += f"━━━━━━━━━━━━━━\n💡 轮到 [AT:{next_player.user_id}] 【{next_player.user_name}】\n请选择：/叫牌 /停牌 /投降 /加倍"
+                    # 启动新的超时任务
+                    self.start_timeout()
         elif current_player.hand.get_value() == 21:
             msg += "🎯 21点！自动停牌\n"
             current_player.finished = True
@@ -214,6 +229,8 @@ class BlackjackGame:
                 next_player = self.get_current_player()
                 if next_player:
                     msg += f"━━━━━━━━━━━━━━\n💡 轮到 [AT:{next_player.user_id}] 【{next_player.user_name}】\n请选择：/叫牌 /停牌 /投降 /加倍"
+                    # 启动新的超时任务
+                    self.start_timeout()
 
         return msg
 
@@ -234,6 +251,9 @@ class BlackjackGame:
         if current_player.user_id != user_id:
             return "现在不是你的回合！"
 
+        # 取消超时任务
+        self.cancel_timeout()
+
         msg = f"✋ {current_player.user_name} 停牌\n"
         current_player.finished = True
         current_player.actions_taken += 1
@@ -246,6 +266,8 @@ class BlackjackGame:
             next_player = self.get_current_player()
             if next_player:
                 msg += f"━━━━━━━━━━━━━━\n💡 轮到 [AT:{next_player.user_id}] 【{next_player.user_name}】\n请选择：/叫牌 /停牌 /投降 /加倍"
+                # 启动新的超时任务
+                self.start_timeout()
 
         return msg
 
@@ -270,6 +292,9 @@ class BlackjackGame:
         if current_player.actions_taken > 0:
             return "❌ 只能在初始手牌时投降！"
 
+        # 取消超时任务
+        self.cancel_timeout()
+
         msg = f"🏳️ {current_player.user_name} 投降\n"
         msg += f"损失一半赌注：{self.bet // 2} 积分\n"
 
@@ -285,6 +310,8 @@ class BlackjackGame:
             next_player = self.get_current_player()
             if next_player:
                 msg += f"━━━━━━━━━━━━━━\n💡 轮到 [AT:{next_player.user_id}] 【{next_player.user_name}】\n请选择：/叫牌 /停牌 /投降 /加倍"
+                # 启动新的超时任务
+                self.start_timeout()
 
         return msg
 
@@ -312,6 +339,9 @@ class BlackjackGame:
         # 检查积分是否足够（需要额外的赌注）
         if not points_manager.has_enough_points(self.group_id, user_id, self.bet):
             return f"❌ 积分不足！加倍需要额外 {self.bet} 积分"
+
+        # 取消超时任务
+        self.cancel_timeout()
 
         # 标记加倍
         current_player.doubled = True
@@ -341,6 +371,8 @@ class BlackjackGame:
             next_player = self.get_current_player()
             if next_player:
                 msg += f"━━━━━━━━━━━━━━\n💡 轮到 [AT:{next_player.user_id}] 【{next_player.user_name}】\n请选择：/叫牌 /停牌 /投降 /加倍"
+                # 启动新的超时任务
+                self.start_timeout()
 
         return msg
 
@@ -482,6 +514,73 @@ class BlackjackGame:
         for player in self.players:
             loan_manager.increment_games_played(self.group_id, player.user_id)
         loan_manager.increment_games_played(self.group_id, self.creator_id)
+
+        return msg
+
+    def start_timeout(self):
+        """启动超时计时"""
+        # 取消之前的超时任务
+        self.cancel_timeout()
+
+        # 如果游戏已结束，不启动超时
+        if self.finished:
+            return
+
+        # 获取当前玩家
+        current = self.get_current_player()
+        if not current:
+            return
+
+        # 创建超时任务
+        async def timeout_handler():
+            try:
+                await asyncio.sleep(self.timeout_duration)
+                # 超时后执行回调
+                if self.timeout_callback and not self.finished:
+                    await self.timeout_callback(self.group_id, current.user_id)
+            except asyncio.CancelledError:
+                # 任务被取消，正常结束
+                pass
+
+        self.timeout_task = asyncio.create_task(timeout_handler())
+
+    def cancel_timeout(self):
+        """取消超时计时"""
+        if self.timeout_task and not self.timeout_task.done():
+            self.timeout_task.cancel()
+            self.timeout_task = None
+
+    def auto_surrender(self, user_id: str) -> str:
+        """
+        自动投降（超时）
+
+        Args:
+            user_id: 玩家QQ号
+
+        Returns:
+            操作消息
+        """
+        current = self.get_current_player()
+        if not current or current.user_id != user_id:
+            return ""
+
+        # 标记为投降
+        current.surrendered = True
+        current.finished = True
+
+        msg = f"⏰ {current.user_name} 操作超时，自动投降\n"
+
+        # 切换到下一位玩家
+        self.current_player_idx += 1
+        next_player = self.get_current_player()
+
+        if next_player:
+            msg += f"💡 轮到 [AT:{next_player.user_id}] 【{next_player.user_name}】\n请选择：/叫牌 /停牌 /投降 /加倍"
+            # 启动新的超时任务
+            self.start_timeout()
+        else:
+            # 所有玩家完成，庄家自动补牌
+            msg += self.dealer_play()
 
         return msg
 
