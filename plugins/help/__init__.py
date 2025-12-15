@@ -61,12 +61,17 @@ async def handle_help(bot: Bot, event: MessageEvent):
         MessageSegment.node_custom(
             user_id=bot_id,
             nickname=bot_name,
-            content="🎮 趣味游戏\n\n/魔女审判 @用户 - 发起投票禁言\n  • 群友通过贴表情投票决定是否禁言目标用户\n  • 👌 贴【OK】表示同意，❓ 贴【问号】表示反对\n  • 投票时间结束后自动统计并执行\n\n/禁言大转盘 - 随机禁言自己\n  • 转动转盘，随机抽取禁言时长\n  • 考验你的运气！\n\n💡 所有游戏功能都有冷却时间"
+            content="🎮 趣味游戏\n\n/魔女审判 @用户 - 发起投票禁言\n  • 群友通过贴表情投票决定是否禁言目标用户\n  • 👌 贴【OK】表示同意，❓ 贴【问号】表示反对\n  • 投票时间结束后自动统计并执行\n\n/禁言大转盘 - 随机禁言自己\n  • 转动转盘，随机抽取禁言时长\n  • 考验你的运气！\n\n/俄罗斯轮盘 <容量> <子弹> - 创建俄罗斯轮盘游戏\n/开枪 - 参与游戏，中弹则禁言\n/轮盘状态 - 查看当前游戏状态\n/结束轮盘 - 终止游戏（仅管理员）\n  • 示例：/俄罗斯轮盘 6 1\n  • 刺激的运气游戏，敢来挑战吗？\n\n💡 所有游戏功能都有冷却时间"
         ),
         MessageSegment.node_custom(
             user_id=bot_id,
             nickname=bot_name,
-            content="✨ 互动功能\n\n• 戳一戳 - 戳机器人会被戳回去\n• @机器人 - @机器人会随机回复\n\n💡 这些是自动触发的功能，无需命令"
+            content="✨ 互动功能\n\n• 戳一戳 - 戳机器人会被戳回去\n• @机器人 早安/晚安 - 根据时间段回复不同内容\n  • 在不同时间说早安/晚安会有不同反应哦~\n• @机器人 - @机器人会随机回复\n\n💡 这些是自动触发的功能，无需命令"
+        ),
+        MessageSegment.node_custom(
+            user_id=bot_id,
+            nickname=bot_name,
+            content="🎭 娱乐工具\n\n/伪造发言 @用户1 文本1 @用户2 文本2 ... - 生成伪造的聊天记录\n  • 示例：/伪造发言 @张三 你好啊 @李四 好的没问题\n  • 可以伪造多条发言记录\n\n💡 仅供娱乐，请勿用于恶意用途"
         ),
         MessageSegment.node_custom(
             user_id=bot_id,
