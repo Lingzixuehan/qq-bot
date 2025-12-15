@@ -76,6 +76,11 @@ async def handle_help(bot: Bot, event: MessageEvent):
         MessageSegment.node_custom(
             user_id=bot_id,
             nickname=bot_name,
+            content="🃏 21点游戏\n\n/签到 - 每日签到获取积分（1-20分）\n/积分 - 查询自己的积分\n/积分排行 - 查看积分排行榜\n\n/21点 <赌注> - 创建21点游戏\n/接受游戏 <ID> - 参与游戏\n/叫牌 - 要一张牌\n/停牌 - 不再要牌\n/游戏列表 - 查看等待中的游戏\n\n  • 示例：/21点 100\n  • 连续签到有额外奖励\n  • 胜者获得赌注+随机奖励（0-10%）"
+        ),
+        MessageSegment.node_custom(
+            user_id=bot_id,
+            nickname=bot_name,
             content="📖 其他说明\n\n💡 所有命令都需要使用 / 前缀\n💡 例如：/help\n💡 大部分命令支持群聊和私聊"
         ),
     ]
