@@ -591,8 +591,8 @@ async def handle_borrow(bot: Bot, event: GroupMessageEvent, args: Message = Comm
     if borrower_id == lender_id:
         await borrow_cmd.finish("❌ 不能向自己借款！")
 
-    # 创建借贷
-    success, msg = loan_manager.create_loan(group_id, borrower_id, lender_id, amount)
+    # 创建借贷请求
+    success, msg = loan_manager.create_request(group_id, borrower_id, lender_id, amount)
 
     await borrow_cmd.finish(msg)
 
@@ -613,6 +613,55 @@ async def handle_loan_info(event: GroupMessageEvent):
         await loan_info_cmd.finish("你当前没有未还清的贷款。")
 
     await loan_info_cmd.finish(loan_info)
+
+
+# ============== 同意借贷 ==============
+approve_loan_cmd = on_command("同意借贷", aliases={"同意借款", "approve_loan"}, priority=5, block=True)
+
+
+@approve_loan_cmd.handle()
+async def handle_approve_loan(bot: Bot, event: GroupMessageEvent, args: Message = CommandArg()):
+    """同意借贷请求"""
+    group_id = str(event.group_id)
+    lender_id = str(event.user_id)
+
+    # 解析参数
+    at_segments = [seg for seg in args if seg.type == "at"]
+
+    if not at_segments:
+        await approve_loan_cmd.finish(
+            "用法：/同意借贷 @用户\n"
+            "示例：/同意借贷 @张三\n"
+            "━━━━━━━━━━━━━━\n"
+            "💡 同意对方向你借款的请求"
+        )
+
+    borrower_id = str(at_segments[0].data["qq"])
+
+    # 不能是自己
+    if lender_id == borrower_id:
+        await approve_loan_cmd.finish("❌ 无效的操作！")
+
+    # 同意借贷
+    success, msg = loan_manager.approve_request(group_id, lender_id, borrower_id)
+
+    await approve_loan_cmd.finish(msg)
+
+
+# ============== 取消借贷 ==============
+cancel_loan_cmd = on_command("取消借贷", aliases={"取消借款", "cancel_loan"}, priority=5, block=True)
+
+
+@cancel_loan_cmd.handle()
+async def handle_cancel_loan(event: GroupMessageEvent):
+    """取消借贷请求"""
+    group_id = str(event.group_id)
+    borrower_id = str(event.user_id)
+
+    # 取消借贷请求
+    success, msg = loan_manager.cancel_request(group_id, borrower_id)
+
+    await cancel_loan_cmd.finish(msg)
 
 
 # ============== 卖身 ==============
