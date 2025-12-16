@@ -103,7 +103,6 @@ async def handle_sign(event: GroupMessageEvent):
 points_query = on_command("积分", aliases={"我的积分", "查询积分"}, priority=5, block=True)
 
 
-@require_fun_group()
 @points_query.handle()
 @require_fun_group()
 async def handle_points_query(bot: Bot, event: GroupMessageEvent):
@@ -130,7 +129,6 @@ async def handle_points_query(bot: Bot, event: GroupMessageEvent):
 rank_cmd = on_command("积分排行", aliases={"排行榜", "rank"}, priority=5, block=True)
 
 
-@require_fun_group()
 @rank_cmd.handle()
 @require_fun_group()
 async def handle_rank(bot: Bot, event: GroupMessageEvent):
@@ -165,7 +163,6 @@ async def handle_rank(bot: Bot, event: GroupMessageEvent):
 bottom_rank_cmd = on_command("积分倒数", aliases={"倒数排行", "poorest"}, priority=5, block=True)
 
 
-@require_fun_group()
 @bottom_rank_cmd.handle()
 @require_fun_group()
 async def handle_bottom_rank(bot: Bot, event: GroupMessageEvent):
@@ -294,7 +291,6 @@ join_game_cmd = on_command("接受游戏", aliases={"加入游戏", "join"}, pri
 async def handle_join_game(bot: Bot, event: GroupMessageEvent, args: Message = CommandArg()):
     """接受游戏"""
     group_id = str(event.group_id)
-@require_fun_group()
     user_id = str(event.user_id)
 
     # 解析游戏ID
@@ -364,7 +360,6 @@ async def handle_hit(event: GroupMessageEvent):
     user_id = str(event.user_id)
 
     # 获取用户正在进行的游戏
-@require_fun_group()
     game = game_manager.get_player_game(group_id, user_id)
     if not game:
         await hit_cmd.finish("❌ 你没有正在进行的游戏！")
@@ -395,7 +390,6 @@ async def handle_stand(event: GroupMessageEvent):
     game = game_manager.get_player_game(group_id, user_id)
     if not game:
         await stand_cmd.finish("❌ 你没有正在进行的游戏！")
-@require_fun_group()
 
     # 停牌
     msg = game.stand(user_id)
@@ -426,7 +420,6 @@ async def handle_surrender(event: GroupMessageEvent):
 
     # 投降
     msg = game.surrender(user_id)
-@require_fun_group()
 
     # 结算积分
     if game.finished:
@@ -457,7 +450,6 @@ async def handle_double(event: GroupMessageEvent):
 
     # 结算积分
     if game.finished:
-@require_fun_group()
         msg += game.settle()
 
     # 解析并发送消息（处理@标记）
@@ -488,7 +480,6 @@ async def handle_game_list(event: GroupMessageEvent):
     msg += "━━━━━━━━━━━━━━\n"
     msg += "使用 /接受游戏 <ID> 来参与游戏"
 
-@require_fun_group()
     await game_list_cmd.finish(msg)
 
 
@@ -649,7 +640,6 @@ async def handle_borrow(bot: Bot, event: GroupMessageEvent, args: Message = Comm
         await borrow_cmd.finish("❌ 不能向自己借款！")
 
     # 创建借贷请求
-@require_fun_group()
     success, msg = loan_manager.create_request(group_id, borrower_id, lender_id, amount)
 
     await borrow_cmd.finish(msg)
@@ -710,7 +700,6 @@ async def handle_approve_loan(bot: Bot, event: GroupMessageEvent, args: Message 
 
 # ============== 取消借贷 ==============
 cancel_loan_cmd = on_command("取消借贷", aliases={"取消借款", "cancel_loan"}, priority=5, block=True)
-@require_fun_group()
 
 
 @cancel_loan_cmd.handle()
@@ -733,7 +722,6 @@ clear_loans_cmd = on_command("平账", aliases={"清除借贷", "clear_loans"}, 
 @clear_loans_cmd.handle()
 async def handle_clear_loans(event: GroupMessageEvent):
     """平账 - 强制清除所有借贷记录（仅管理员）"""
-@require_fun_group()
     group_id = str(event.group_id)
     user_id = str(event.user_id)
 
@@ -771,7 +759,6 @@ async def handle_sell(bot: Bot, event: GroupMessageEvent, args: Message = Comman
             "💡 买家同意后会修改你的群昵称为\"买家的称号\""
         )
 
-@require_fun_group()
     try:
         buyer_id = str(at_segments[0].data["qq"])
         parts = arg_text.split()
@@ -815,7 +802,6 @@ async def handle_sell(bot: Bot, event: GroupMessageEvent, args: Message = Comman
 approve_sell_cmd = on_command("同意卖身", aliases={"接受卖身", "accept"}, priority=5, block=True)
 
 
-@require_fun_group()
 @approve_sell_cmd.handle()
 @require_fun_group()
 async def handle_approve_sell(bot: Bot, event: GroupMessageEvent, args: Message = CommandArg()):
