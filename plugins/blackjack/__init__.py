@@ -20,6 +20,8 @@ config = driver.config
 
 # 最大同时游戏数量（0表示不限制）
 MAX_CONCURRENT_GAMES = int(getattr(config, "blackjack_max_concurrent_games", 3))
+# 赌注上限（0表示不限制）
+MAX_BET = int(getattr(config, "blackjack_max_bet", 10000))
 
 
 async def handle_player_timeout(group_id: str, user_id: str):
@@ -230,8 +232,8 @@ async def handle_create_game(bot: Bot, event: GroupMessageEvent, args: Message =
 
         if bet <= 0:
             await create_game_cmd.finish("❌ 赌注必须大于0！")
-        if bet > 10000:
-            await create_game_cmd.finish("❌ 赌注不能超过10000！")
+        if MAX_BET > 0 and bet > MAX_BET:
+            await create_game_cmd.finish(f"❌ 赌注不能超过{MAX_BET}！")
         if max_players < 1 or max_players > 5:
             await create_game_cmd.finish("❌ 玩家数必须在1-5之间！")
     except (ValueError, IndexError):
@@ -475,12 +477,59 @@ async def handle_game_list(event: GroupMessageEvent):
     msg += "━━━━━━━━━━━━━━\n"
 
     for game_id, game in waiting_games:
-        msg += f"游戏 {game_id}：{game.creator_name}（{game.bet}积分）\n"
+        msg += f"\n游戏 #{game_id}\n"
+        msg += f"庄家：{game.creator_name}\n"
+        msg += f"赌注：{game.bet} 积分\n"
+        msg += f"玩家数：{len(game.players)}/{game.max_players}\n"
+        if len(game.players) > 0:
+            msg += f"已加入："
+            player_names = [p.user_name for p in game.players]
+            msg += "、".join(player_names) + "\n"
+        msg += "━━━━━━━━━━━━━━\n"
 
-    msg += "━━━━━━━━━━━━━━\n"
-    msg += "使用 /接受游戏 <ID> 来参与游戏"
+    msg += "\n💡 使用 /接受游戏 <ID> 来参与游戏"
+    msg += "\n💡 使用 /取消游戏 <ID> 投票取消游戏"
 
     await game_list_cmd.finish(msg)
+
+
+# ============== 取消游戏（投票）==============
+cancel_game_cmd = on_command("取消游戏", aliases={"投票取消"}, priority=5, block=True)
+
+
+@cancel_game_cmd.handle()
+@require_fun_group()
+async def handle_cancel_game(event: GroupMessageEvent, args: Message = CommandArg()):
+    """投票取消游戏"""
+    group_id = str(event.group_id)
+    user_id = str(event.user_id)
+
+    # 解析游戏ID
+    arg_text = args.extract_plain_text().strip()
+    if not arg_text:
+        await cancel_game_cmd.finish("用法：/取消游戏 <游戏ID>")
+
+    try:
+        game_id = int(arg_text)
+    except ValueError:
+        await cancel_game_cmd.finish("❌ 请输入有效的游戏ID！")
+
+    # 获取游戏
+    game = game_manager.get_game(group_id, game_id)
+    if not game:
+        await cancel_game_cmd.finish("❌ 游戏不存在！")
+
+    # 投票取消
+    success, msg, should_cancel = game.vote_cancel(user_id)
+
+    if not success:
+        await cancel_game_cmd.finish(msg)
+
+    # 如果达到取消条件，移除游戏
+    if should_cancel:
+        game_manager.remove_game(group_id, game_id)
+
+    await cancel_game_cmd.finish(msg)
 
 
 # ============== 发放积分（管理员功能）==============
