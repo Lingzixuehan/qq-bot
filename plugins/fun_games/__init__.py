@@ -18,6 +18,8 @@ from nonebot.adapters.onebot.v11 import (
 )
 from nonebot.log import logger
 from nonebot.params import CommandArg
+
+from ..common import require_fun_group
 from PIL import Image, ImageDraw, ImageFont
 
 # ============== 配置 ==============
@@ -323,6 +325,7 @@ def draw_roulette(durations: list, selected_index: int) -> bytes:
 # ============== 魔女审判 ==============
 witch_trial = on_command("魔女审判", priority=5, block=True)
 
+@require_fun_group()
 
 @witch_trial.handle()
 async def handle_witch_trial(bot: Bot, event: GroupMessageEvent, args: Message = CommandArg()):
@@ -516,6 +519,7 @@ async def handle_witch_trial(bot: Bot, event: GroupMessageEvent, args: Message =
 # ============== 禁言大转盘 ==============
 ban_roulette = on_command("禁言大转盘", aliases={"禁言轮盘"}, priority=5, block=True)
 
+@require_fun_group()
 
 @ban_roulette.handle()
 async def handle_ban_roulette(bot: Bot, event: GroupMessageEvent):
