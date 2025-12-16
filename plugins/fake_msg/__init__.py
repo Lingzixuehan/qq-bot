@@ -7,10 +7,13 @@ from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, MessageSegment, 
 from nonebot.params import CommandArg
 from nonebot.log import logger
 
+from ..common import require_fun_group
+
 fake_msg = on_command("伪造发言", aliases={"假消息", "伪造消息"}, priority=5, block=True)
 
 
 @fake_msg.handle()
+@require_fun_group()
 async def handle_fake_msg(bot: Bot, event: GroupMessageEvent, args: Message = CommandArg()):
     """
     伪造发言功能
