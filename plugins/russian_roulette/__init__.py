@@ -10,6 +10,8 @@ from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message
 from nonebot.params import CommandArg
 from nonebot.log import logger
 
+from ..common import require_fun_group
+
 # ============== 配置 ==============
 driver = get_driver()
 config = driver.config
@@ -32,6 +34,7 @@ active_games: Dict[str, dict] = {}
 # ============== 创建游戏 ==============
 start_game = on_command("俄罗斯轮盘", priority=5, block=True)
 
+@require_fun_group()
 
 @start_game.handle()
 async def handle_start_game(bot: Bot, event: GroupMessageEvent, args: Message = CommandArg()):
@@ -114,6 +117,7 @@ async def handle_start_game(bot: Bot, event: GroupMessageEvent, args: Message = 
 # ============== 开枪 ==============
 shoot = on_command("开枪", aliases={"bang", "shoot"}, priority=5, block=True)
 
+@require_fun_group()
 
 @shoot.handle()
 async def handle_shoot(bot: Bot, event: GroupMessageEvent):
@@ -231,6 +235,7 @@ async def handle_shoot(bot: Bot, event: GroupMessageEvent):
 # ============== 查看游戏状态 ==============
 game_status = on_command("轮盘状态", aliases={"游戏状态"}, priority=5, block=True)
 
+@require_fun_group()
 
 @game_status.handle()
 async def handle_game_status(event: GroupMessageEvent):
@@ -255,6 +260,7 @@ async def handle_game_status(event: GroupMessageEvent):
 end_game = on_command("结束轮盘", aliases={"终止游戏"}, priority=5, block=True)
 
 
+@require_fun_group()
 @end_game.handle()
 async def handle_end_game(bot: Bot, event: GroupMessageEvent):
     """结束当前游戏（管理员或授权用户）"""

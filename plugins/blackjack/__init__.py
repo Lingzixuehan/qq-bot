@@ -12,6 +12,7 @@ from .points_manager import points_manager
 from .game import game_manager
 from .loan_manager import loan_manager
 from .sell_manager import sell_manager
+from ..common import require_fun_group
 
 # 读取配置
 driver = get_driver()
@@ -88,6 +89,7 @@ sign_cmd = on_command("签到", aliases={"打卡", "qiandao"}, priority=5, block
 
 
 @sign_cmd.handle()
+@require_fun_group()
 async def handle_sign(event: GroupMessageEvent):
     """签到功能"""
     group_id = str(event.group_id)
@@ -102,6 +104,7 @@ points_query = on_command("积分", aliases={"我的积分", "查询积分"}, pr
 
 
 @points_query.handle()
+@require_fun_group()
 async def handle_points_query(bot: Bot, event: GroupMessageEvent):
     """查询积分"""
     group_id = str(event.group_id)
@@ -127,6 +130,7 @@ rank_cmd = on_command("积分排行", aliases={"排行榜", "rank"}, priority=5,
 
 
 @rank_cmd.handle()
+@require_fun_group()
 async def handle_rank(bot: Bot, event: GroupMessageEvent):
     """积分排行榜"""
     group_id = str(event.group_id)
@@ -160,6 +164,7 @@ bottom_rank_cmd = on_command("积分倒数", aliases={"倒数排行", "poorest"}
 
 
 @bottom_rank_cmd.handle()
+@require_fun_group()
 async def handle_bottom_rank(bot: Bot, event: GroupMessageEvent):
     """积分倒数排行榜"""
     group_id = str(event.group_id)
@@ -202,6 +207,7 @@ create_game_cmd = on_command("21点", aliases={"二十一点", "blackjack"}, pri
 
 
 @create_game_cmd.handle()
+@require_fun_group()
 async def handle_create_game(bot: Bot, event: GroupMessageEvent, args: Message = CommandArg()):
     """创建21点游戏"""
     group_id = str(event.group_id)
@@ -281,6 +287,7 @@ join_game_cmd = on_command("接受游戏", aliases={"加入游戏", "join"}, pri
 
 
 @join_game_cmd.handle()
+@require_fun_group()
 async def handle_join_game(bot: Bot, event: GroupMessageEvent, args: Message = CommandArg()):
     """接受游戏"""
     group_id = str(event.group_id)
@@ -346,6 +353,7 @@ hit_cmd = on_command("叫牌", aliases={"要牌", "hit"}, priority=5, block=True
 
 
 @hit_cmd.handle()
+@require_fun_group()
 async def handle_hit(event: GroupMessageEvent):
     """叫牌"""
     group_id = str(event.group_id)
@@ -372,6 +380,7 @@ stand_cmd = on_command("停牌", aliases={"不要了", "stand"}, priority=5, blo
 
 
 @stand_cmd.handle()
+@require_fun_group()
 async def handle_stand(event: GroupMessageEvent):
     """停牌"""
     group_id = str(event.group_id)
@@ -398,6 +407,7 @@ surrender_cmd = on_command("投降", aliases={"认输"}, priority=5, block=True)
 
 
 @surrender_cmd.handle()
+@require_fun_group()
 async def handle_surrender(event: GroupMessageEvent):
     """投降"""
     group_id = str(event.group_id)
@@ -424,6 +434,7 @@ double_cmd = on_command("加倍", aliases={"双倍", "加注"}, priority=5, bloc
 
 
 @double_cmd.handle()
+@require_fun_group()
 async def handle_double(event: GroupMessageEvent):
     """加倍下注"""
     group_id = str(event.group_id)
@@ -450,6 +461,7 @@ game_list_cmd = on_command("游戏列表", aliases={"21点列表"}, priority=5, 
 
 
 @game_list_cmd.handle()
+@require_fun_group()
 async def handle_game_list(event: GroupMessageEvent):
     """游戏列表"""
     group_id = str(event.group_id)
@@ -592,6 +604,7 @@ borrow_cmd = on_command("借积分", aliases={"借款", "borrow"}, priority=5, b
 
 
 @borrow_cmd.handle()
+@require_fun_group()
 async def handle_borrow(bot: Bot, event: GroupMessageEvent, args: Message = CommandArg()):
     """借积分"""
     group_id = str(event.group_id)
@@ -637,6 +650,7 @@ loan_info_cmd = on_command("借贷信息", aliases={"我的借贷", "loan"}, pri
 
 
 @loan_info_cmd.handle()
+@require_fun_group()
 async def handle_loan_info(event: GroupMessageEvent):
     """查看借贷信息"""
     group_id = str(event.group_id)
@@ -655,6 +669,7 @@ approve_loan_cmd = on_command("同意借贷", aliases={"同意借款", "approve_
 
 
 @approve_loan_cmd.handle()
+@require_fun_group()
 async def handle_approve_loan(bot: Bot, event: GroupMessageEvent, args: Message = CommandArg()):
     """同意借贷请求"""
     group_id = str(event.group_id)
@@ -688,6 +703,7 @@ cancel_loan_cmd = on_command("取消借贷", aliases={"取消借款", "cancel_lo
 
 
 @cancel_loan_cmd.handle()
+@require_fun_group()
 async def handle_cancel_loan(event: GroupMessageEvent):
     """取消借贷请求"""
     group_id = str(event.group_id)
@@ -724,6 +740,7 @@ sell_cmd = on_command("卖身", aliases={"出售", "sell"}, priority=5, block=Tr
 
 
 @sell_cmd.handle()
+@require_fun_group()
 async def handle_sell(bot: Bot, event: GroupMessageEvent, args: Message = CommandArg()):
     """卖身申请"""
     group_id = str(event.group_id)
@@ -786,6 +803,7 @@ approve_sell_cmd = on_command("同意卖身", aliases={"接受卖身", "accept"}
 
 
 @approve_sell_cmd.handle()
+@require_fun_group()
 async def handle_approve_sell(bot: Bot, event: GroupMessageEvent, args: Message = CommandArg()):
     """同意卖身申请"""
     group_id = str(event.group_id)
@@ -840,6 +858,7 @@ cancel_sell_cmd = on_command("取消卖身", aliases={"撤销卖身", "cancel"},
 
 
 @cancel_sell_cmd.handle()
+@require_fun_group()
 async def handle_cancel_sell(event: GroupMessageEvent):
     """取消卖身申请"""
     group_id = str(event.group_id)
