@@ -58,6 +58,9 @@ class BlackjackGame:
         self.timeout_callback: Optional[Callable] = None  # 超时回调函数
         self.timeout_duration = 30  # 超时时间（秒）
 
+        # 投票取消相关
+        self.cancel_votes: set = set()  # 投票取消的用户ID集合
+
     def add_player(self, player_id: str, player_name: str) -> Tuple[bool, str]:
         """
         添加玩家
@@ -583,6 +586,63 @@ class BlackjackGame:
             msg += self.dealer_play()
 
         return msg
+
+    def vote_cancel(self, user_id: str) -> Tuple[bool, str, bool]:
+        """
+        投票取消游戏
+
+        Args:
+            user_id: 投票用户ID
+
+        Returns:
+            (是否成功, 消息, 是否达到取消条件)
+        """
+        # 只能对未开始的游戏投票取消
+        if self.started:
+            return False, "❌ 游戏已经开始，无法取消！", False
+
+        if self.finished:
+            return False, "❌ 游戏已经结束！", False
+
+        # 只有庄家和已加入的玩家可以投票
+        is_creator = user_id == self.creator_id
+        is_player = any(p.user_id == user_id for p in self.players)
+
+        if not is_creator and not is_player:
+            return False, "❌ 只有庄家和已加入的玩家可以投票取消游戏！", False
+
+        # 检查是否已经投票
+        if user_id in self.cancel_votes:
+            return False, "❌ 你已经投过票了！", False
+
+        # 添加投票
+        self.cancel_votes.add(user_id)
+
+        # 计算总人数和投票数
+        total_players = 1 + len(self.players)  # 庄家 + 玩家
+        votes_needed = (total_players + 1) // 2  # 过半数
+
+        # 如果是庄家投票，直接取消
+        if is_creator:
+            return True, f"✅ 庄家取消游戏", True
+
+        # 检查是否达到取消条件
+        if len(self.cancel_votes) >= votes_needed:
+            return True, f"✅ 投票通过（{len(self.cancel_votes)}/{total_players}），游戏已取消", True
+        else:
+            return True, f"📊 投票取消游戏（{len(self.cancel_votes)}/{total_players}，需要{votes_needed}票）", False
+
+    def get_all_participant_ids(self) -> list:
+        """
+        获取所有参与者的ID（庄家+玩家）
+
+        Returns:
+            参与者ID列表
+        """
+        ids = [self.creator_id]
+        for player in self.players:
+            ids.append(player.user_id)
+        return ids
 
 
 # 全局游戏管理
