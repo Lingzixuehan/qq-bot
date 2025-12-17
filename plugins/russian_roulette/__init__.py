@@ -48,12 +48,12 @@ async def handle_start_game(bot: Bot, event: GroupMessageEvent, args: Message = 
     # 检查是否已有游戏
     if group_id in active_games:
         game = active_games[group_id]
-        remaining = game["bullets"]
-        total = game["capacity"]
+        remaining_bullets = game["bullets"]
+        remaining_chambers = game["capacity"] - len(game["fired_positions"])
         await start_game.finish(
             f"⚠️ 当前已有进行中的游戏！\n"
-            f"🔫 弹匣容量：{total}\n"
-            f"💥 剩余子弹：{remaining}/{game['bullets']}\n"
+            f"🔫 弹匣容量：{game['capacity']}\n"
+            f"💥 剩余：{remaining_bullets}发子弹/{remaining_chambers}个弹孔\n"
             f"使用 /开枪 参与游戏"
         )
 
@@ -160,6 +160,7 @@ async def handle_shoot(bot: Bot, event: GroupMessageEvent):
         # 中弹！
         game["bullets"] -= 1
         remaining_bullets = game["bullets"]
+        remaining_chambers = game["capacity"] - len(game["fired_positions"])
 
         # 构建消息
         result_msg = (
@@ -170,7 +171,7 @@ async def handle_shoot(bot: Bot, event: GroupMessageEvent):
         )
 
         if remaining_bullets > 0:
-            result_msg += f"💥 剩余子弹：{remaining_bullets}/{game['total_bullets']}\n游戏继续..."
+            result_msg += f"💥 剩余：{remaining_bullets}发子弹/{remaining_chambers}个弹孔\n游戏继续..."
         else:
             result_msg += f"🎉 所有子弹已打完，游戏结束！"
             # 游戏结束，清理状态
@@ -210,6 +211,7 @@ async def handle_shoot(bot: Bot, event: GroupMessageEvent):
     else:
         # 没中弹，安全
         remaining_bullets = game["bullets"]
+        remaining_chambers = game["capacity"] - len(game["fired_positions"])
 
         # 检查剩余弹匣是否全是子弹
         if remaining_bullets > 0 and check_all_bullets_remaining():
@@ -227,7 +229,7 @@ async def handle_shoot(bot: Bot, event: GroupMessageEvent):
             f"✅ Click...\n"
             f"━━━━━━━━━━━━━━\n"
             f"😮‍💨 安全！这次逃过一劫\n"
-            f"💥 剩余子弹：{remaining_bullets}/{game['total_bullets']}\n"
+            f"💥 剩余：{remaining_bullets}发子弹/{remaining_chambers}个弹孔\n"
             f"下一位勇士请继续..."
         )
 
@@ -246,11 +248,13 @@ async def handle_game_status(event: GroupMessageEvent):
         await game_status.finish("当前没有进行中的游戏！")
 
     game = active_games[group_id]
+    remaining_bullets = game["bullets"]
+    remaining_chambers = game["capacity"] - len(game["fired_positions"])
     await game_status.finish(
         f"🎲 俄罗斯轮盘游戏状态\n"
         f"━━━━━━━━━━━━━━\n"
         f"🔫 弹匣容量：{game['capacity']}\n"
-        f"💥 剩余子弹：{game['bullets']}/{game['total_bullets']}\n"
+        f"💥 剩余：{remaining_bullets}发子弹/{remaining_chambers}个弹孔\n"
         f"📍 当前位置：{game['current'] + 1}/{game['capacity']}\n"
         f"⏱️ 中弹禁言：{ROULETTE_BAN_DURATION}秒"
     )
