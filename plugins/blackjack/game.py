@@ -567,6 +567,9 @@ class BlackjackGame:
         if not current or current.user_id != user_id:
             return ""
 
+        # 取消当前超时任务
+        self.cancel_timeout()
+
         # 标记为投降
         current.surrendered = True
         current.finished = True
@@ -575,15 +578,19 @@ class BlackjackGame:
 
         # 切换到下一位玩家
         self.current_player_idx += 1
-        next_player = self.get_current_player()
 
-        if next_player:
-            msg += f"💡 轮到 [AT:{next_player.user_id}] 【{next_player.user_name}】\n请选择：/叫牌 /停牌 /投降 /加倍"
-            # 启动新的超时任务
-            self.start_timeout()
+        # 检查是否所有玩家都完成
+        if self._all_players_finished():
+            msg += self._dealer_play()
         else:
-            # 所有玩家完成，庄家自动补牌
-            msg += self.dealer_play()
+            next_player = self.get_current_player()
+            if next_player:
+                msg += f"💡 轮到 [AT:{next_player.user_id}] 【{next_player.user_name}】\n请选择：/叫牌 /停牌 /投降 /加倍"
+                # 启动新的超时任务
+                self.start_timeout()
+            else:
+                # 理论上不应该到这里，但以防万一
+                msg += self._dealer_play()
 
         return msg
 
