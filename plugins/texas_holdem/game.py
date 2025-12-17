@@ -769,6 +769,14 @@ class GameManager:
                 games.append((game_id, game))
         return games
 
+    def get_active_games_count(self, group_id: str) -> int:
+        """获取活跃游戏数量（等待中+进行中，不包括已结束）"""
+        count = 0
+        for game in self.games.get(group_id, {}).values():
+            if not game.finished:
+                count += 1
+        return count
+
 
 # 全局游戏管理器实例
 game_manager = GameManager()
