@@ -6,6 +6,7 @@ from nonebot import on_command, get_driver
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, PrivateMessageEvent, Message, MessageSegment
 from nonebot.params import CommandArg
 from nonebot.log import logger
+from nonebot.exception import FinishedException
 
 from .game import game_manager
 from ..blackjack.points_manager import points_manager
@@ -499,6 +500,9 @@ async def handle_show_hand(bot: Bot, event: GroupMessageEvent | PrivateMessageEv
         else:
             # 从私聊/临时会话触发，直接回复
             await show_hand.finish(msg)
+    except FinishedException:
+        # finish 异常正常向上传播
+        raise
     except Exception as e:
         logger.error(f"发送消息失败: {e}")
         if isinstance(event, GroupMessageEvent):
