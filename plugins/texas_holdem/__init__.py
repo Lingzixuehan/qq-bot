@@ -97,7 +97,8 @@ async def handle_texas_create(event: GroupMessageEvent, args: Message = CommandA
             group_id=event.group_id,
             user_id=event.user_id
         )
-        user_name = user_info.get("card") or user_info.get("nickname", f"用户{user_id}")
+        nickname = user_info.get("card") or user_info.get("nickname", f"用户{user_id}")
+        user_name = f"{nickname}({user_id})"
     except:
         user_name = f"用户{user_id}"
 
@@ -188,7 +189,8 @@ async def handle_texas_join(event: GroupMessageEvent, args: Message = CommandArg
             group_id=event.group_id,
             user_id=event.user_id
         )
-        user_name = user_info.get("card") or user_info.get("nickname", f"用户{user_id}")
+        nickname = user_info.get("card") or user_info.get("nickname", f"用户{user_id}")
+        user_name = f"{nickname}({user_id})"
     except:
         user_name = f"用户{user_id}"
 
@@ -488,14 +490,21 @@ async def handle_show_hand(bot: Bot, event: GroupMessageEvent | PrivateMessageEv
         hand_desc = HandEvaluator.get_hand_description(rank, values, best_cards)
         msg += f"\n📊 当前牌型：{hand_desc}"
 
-    # 私聊发送
+    # 私聊或临时会话发送
     try:
-        await bot.send_private_msg(user_id=int(user_id), message=msg)
         if isinstance(event, GroupMessageEvent):
-            await show_hand.finish("手牌已私聊发送！")
+            # 从群聊触发，发送临时会话
+            await bot.send_private_msg(user_id=int(user_id), group_id=event.group_id, message=msg)
+            await show_hand.finish("手牌已通过临时会话发送！")
+        else:
+            # 从私聊/临时会话触发，直接回复
+            await show_hand.finish(msg)
     except Exception as e:
-        logger.error(f"发送私聊消息失败: {e}")
-        await show_hand.finish("发送私聊消息失败！请确保已添加机器人为好友。")
+        logger.error(f"发送消息失败: {e}")
+        if isinstance(event, GroupMessageEvent):
+            await show_hand.finish("发送临时会话失败！请确保允许机器人发送临时会话。")
+        else:
+            await show_hand.finish("发送消息失败！")
 
 
 # ============== 底池 ==============
