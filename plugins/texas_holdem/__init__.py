@@ -152,9 +152,9 @@ async def handle_texas_create(event: GroupMessageEvent, args: Message = CommandA
 
     # 检查并发游戏数
     if MAX_CONCURRENT_GAMES > 0:
-        waiting_games = game_manager.get_waiting_games(group_id)
-        if len(waiting_games) >= MAX_CONCURRENT_GAMES:
-            await texas_create.finish(f"当前等待中的游戏已达上限({MAX_CONCURRENT_GAMES})！")
+        active_games_count = game_manager.get_active_games_count(group_id)
+        if active_games_count >= MAX_CONCURRENT_GAMES:
+            await texas_create.finish(f"当前游戏数量已达上限({MAX_CONCURRENT_GAMES})！请等待游戏结束后再创建。")
 
     # 创建游戏
     success, game_id, msg = game_manager.create_game(
