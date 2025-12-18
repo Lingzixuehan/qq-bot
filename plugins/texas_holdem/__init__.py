@@ -87,19 +87,20 @@ texas_create = on_command("德扑", aliases={"德州扑克", "texasholdem"}, pri
 
 @texas_create.handle()
 @require_fun_group()
-async def handle_texas_create(event: GroupMessageEvent, args: Message = CommandArg()):
+async def handle_texas_create(bot: Bot, event: GroupMessageEvent, args: Message = CommandArg()):
     """创建德州扑克游戏"""
     group_id = str(event.group_id)
     user_id = str(event.user_id)
 
     # 获取用户昵称
     try:
-        user_info = await event.bot.get_group_member_info(
+        user_info = await bot.get_group_member_info(
             group_id=event.group_id,
             user_id=event.user_id
         )
         user_name = user_info.get("card") or user_info.get("nickname", f"用户{user_id}")
-    except:
+    except Exception as e:
+        logger.error(f"获取用户昵称失败: {e}")
         user_name = f"用户{user_id}"
 
     # 检查是否已经在游戏中
@@ -178,19 +179,20 @@ texas_join = on_command("加入德扑", aliases={"加入德州扑克", "jointexa
 
 @texas_join.handle()
 @require_fun_group()
-async def handle_texas_join(event: GroupMessageEvent, args: Message = CommandArg()):
+async def handle_texas_join(bot: Bot, event: GroupMessageEvent, args: Message = CommandArg()):
     """加入德州扑克游戏"""
     group_id = str(event.group_id)
     user_id = str(event.user_id)
 
     # 获取用户昵称
     try:
-        user_info = await event.bot.get_group_member_info(
+        user_info = await bot.get_group_member_info(
             group_id=event.group_id,
             user_id=event.user_id
         )
         user_name = user_info.get("card") or user_info.get("nickname", f"用户{user_id}")
-    except:
+    except Exception as e:
+        logger.error(f"获取用户昵称失败: {e}")
         user_name = f"用户{user_id}"
 
     # 检查是否已经在游戏中
@@ -566,7 +568,7 @@ async def handle_texas_rules():
 
 ━━━━━━━━━━━━━━
 🎴 牌型大小（从大到小）：
-1. 皇家同花顺 - A K Q J T 同花色
+1. 皇家同花顺 - A K Q J 10 同花色
 2. 同花顺 - 5张连续同花色
 3. 四条 - 4张相同点数
 4. 葫芦 - 3张+2张相同点数

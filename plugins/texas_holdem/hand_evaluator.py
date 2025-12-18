@@ -237,38 +237,38 @@ class HandEvaluator:
         if rank == HandRank.ROYAL_FLUSH:
             return f"🌟 {rank_name}{cards_str}"
         elif rank == HandRank.STRAIGHT_FLUSH:
-            rank_names = {14: "A", 13: "K", 12: "Q", 11: "J", 10: "T"}
+            rank_names = {14: "A", 13: "K", 12: "Q", 11: "J", 10: "10"}
             high_card = rank_names.get(values[0], str(values[0]))
             return f"💎 {rank_name}({high_card}高){cards_str}"
         elif rank == HandRank.FOUR_OF_KIND:
-            rank_names = {14: "A", 13: "K", 12: "Q", 11: "J", 10: "T"}
+            rank_names = {14: "A", 13: "K", 12: "Q", 11: "J", 10: "10"}
             four = rank_names.get(values[0], str(values[0]))
             return f"🎯 {rank_name}({four}){cards_str}"
         elif rank == HandRank.FULL_HOUSE:
-            rank_names = {14: "A", 13: "K", 12: "Q", 11: "J", 10: "T"}
+            rank_names = {14: "A", 13: "K", 12: "Q", 11: "J", 10: "10"}
             three = rank_names.get(values[0], str(values[0]))
             two = rank_names.get(values[1], str(values[1]))
             return f"🏠 {rank_name}({three}带{two}){cards_str}"
         elif rank == HandRank.FLUSH:
             return f"🌊 {rank_name}{cards_str}"
         elif rank == HandRank.STRAIGHT:
-            rank_names = {14: "A", 13: "K", 12: "Q", 11: "J", 10: "T"}
+            rank_names = {14: "A", 13: "K", 12: "Q", 11: "J", 10: "10"}
             high_card = rank_names.get(values[0], str(values[0]))
             return f"📈 {rank_name}({high_card}高){cards_str}"
         elif rank == HandRank.THREE_OF_KIND:
-            rank_names = {14: "A", 13: "K", 12: "Q", 11: "J", 10: "T"}
+            rank_names = {14: "A", 13: "K", 12: "Q", 11: "J", 10: "10"}
             three = rank_names.get(values[0], str(values[0]))
             return f"🎲 {rank_name}({three}){cards_str}"
         elif rank == HandRank.TWO_PAIR:
-            rank_names = {14: "A", 13: "K", 12: "Q", 11: "J", 10: "T"}
+            rank_names = {14: "A", 13: "K", 12: "Q", 11: "J", 10: "10"}
             pair1 = rank_names.get(values[0], str(values[0]))
             pair2 = rank_names.get(values[1], str(values[1]))
             return f"👥 {rank_name}({pair1}和{pair2}){cards_str}"
         elif rank == HandRank.ONE_PAIR:
-            rank_names = {14: "A", 13: "K", 12: "Q", 11: "J", 10: "T"}
+            rank_names = {14: "A", 13: "K", 12: "Q", 11: "J", 10: "10"}
             pair = rank_names.get(values[0], str(values[0]))
             return f"🎴 {rank_name}({pair}){cards_str}"
         else:  # HIGH_CARD
-            rank_names = {14: "A", 13: "K", 12: "Q", 11: "J", 10: "T"}
+            rank_names = {14: "A", 13: "K", 12: "Q", 11: "J", 10: "10"}
             high = rank_names.get(values[0], str(values[0]))
             return f"🃏 {rank_name}({high}){cards_str}"
