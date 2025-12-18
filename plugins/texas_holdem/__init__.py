@@ -269,6 +269,9 @@ async def handle_texas_start(bot: Bot, event: GroupMessageEvent, args: Message =
             except Exception as e:
                 logger.error(f"发送手牌给玩家 {player.user_id} 失败: {e}")
 
+    # 确保handler正确结束
+    await texas_start.finish()
+
 
 # ============== 游戏列表 ==============
 texas_list = on_command("德扑列表", aliases={"德州扑克列表", "texaslist"}, priority=5, block=True)
@@ -359,7 +362,7 @@ async def handle_fold(event: GroupMessageEvent):
         await fold_cmd.finish("你不在任何游戏中！")
 
     msg = game.fold(user_id)
-    await fold_cmd.send(parse_at_message(msg))
+    await fold_cmd.finish(parse_at_message(msg))
 
 
 # ============== 过牌 ==============
@@ -378,7 +381,7 @@ async def handle_check(event: GroupMessageEvent):
         await check_cmd.finish("你不在任何游戏中！")
 
     msg = game.check(user_id)
-    await check_cmd.send(parse_at_message(msg))
+    await check_cmd.finish(parse_at_message(msg))
 
 
 # ============== 跟注 ==============
@@ -397,7 +400,7 @@ async def handle_call(event: GroupMessageEvent):
         await call_cmd.finish("你不在任何游戏中！")
 
     msg = game.call(user_id)
-    await call_cmd.send(parse_at_message(msg))
+    await call_cmd.finish(parse_at_message(msg))
 
 
 # ============== 加注 ==============
@@ -429,7 +432,7 @@ async def handle_raise(event: GroupMessageEvent, args: Message = CommandArg()):
         await raise_cmd.finish("金额必须大于0！")
 
     msg = game.raise_bet(user_id, amount)
-    await raise_cmd.send(parse_at_message(msg))
+    await raise_cmd.finish(parse_at_message(msg))
 
 
 # ============== 全下 ==============
@@ -448,7 +451,7 @@ async def handle_allin(event: GroupMessageEvent):
         await allin_cmd.finish("你不在任何游戏中！")
 
     msg = game.all_in(user_id)
-    await allin_cmd.send(parse_at_message(msg))
+    await allin_cmd.finish(parse_at_message(msg))
 
 
 # ============== 查看手牌（私聊） ==============
