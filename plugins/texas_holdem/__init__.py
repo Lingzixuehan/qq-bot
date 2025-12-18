@@ -217,7 +217,12 @@ async def handle_texas_join(bot: Bot, event: GroupMessageEvent, args: Message = 
 
     # 加入游戏
     success, msg = game.add_player(user_id, user_name)
-    await texas_join.finish(msg)
+
+    # 检查是否人满
+    if success and len(game.players) == game.max_players:
+        msg += f"\n\n[AT:{game.creator_id}] 房间已满员！可以使用 /开始德扑 {game_id} 开始游戏了！"
+
+    await texas_join.finish(parse_at_message(msg))
 
 
 # ============== 开始游戏 ==============

@@ -545,7 +545,21 @@ class TexasHoldemGame:
         winner.chips += self.pot
 
         msg = "━━━━━━━━━━━━━━\n"
-        msg += f"🎊 【{winner.user_name}】获胜！\n"
+        msg += f"🎊 【{winner.user_name}】获胜！（其他玩家已弃牌）\n"
+
+        # 显示当前公共牌（如果有）
+        if len(self.community_cards) > 0:
+            # 判断游戏进行到哪个阶段
+            stage = ""
+            if len(self.community_cards) == 3:
+                stage = "（翻牌圈）"
+            elif len(self.community_cards) == 4:
+                stage = "（转牌圈）"
+            elif len(self.community_cards) == 5:
+                stage = "（河牌圈）"
+
+            msg += f"🃏 公共牌：{self.community_cards}{stage}\n"
+
         msg += f"💰 赢得底池：{self.pot}\n"
         msg += "━━━━━━━━━━━━━━\n"
         msg += self._settle_game()
