@@ -98,8 +98,7 @@ async def handle_texas_create(event: GroupMessageEvent, args: Message = CommandA
             group_id=event.group_id,
             user_id=event.user_id
         )
-        nickname = user_info.get("card") or user_info.get("nickname", f"用户{user_id}")
-        user_name = f"{nickname}({user_id})"
+        user_name = user_info.get("card") or user_info.get("nickname", f"用户{user_id}")
     except:
         user_name = f"用户{user_id}"
 
@@ -190,8 +189,7 @@ async def handle_texas_join(event: GroupMessageEvent, args: Message = CommandArg
             group_id=event.group_id,
             user_id=event.user_id
         )
-        nickname = user_info.get("card") or user_info.get("nickname", f"用户{user_id}")
-        user_name = f"{nickname}({user_id})"
+        user_name = user_info.get("card") or user_info.get("nickname", f"用户{user_id}")
     except:
         user_name = f"用户{user_id}"
 
@@ -253,6 +251,21 @@ async def handle_texas_start(event: GroupMessageEvent, args: Message = CommandAr
     # 开始游戏
     msg = game.start_game()
     await texas_start.send(parse_at_message(msg))
+
+    # 自动给所有玩家发送手牌
+    for player in game.players:
+        if player.hole_cards:
+            hole_str = " ".join(str(card) for card in player.hole_cards)
+            hand_msg = f"🎮 德州扑克游戏开始！\n🃏 你的手牌：{hole_str}"
+
+            try:
+                await event.bot.send_private_msg(
+                    user_id=int(player.user_id),
+                    group_id=event.group_id,
+                    message=hand_msg
+                )
+            except Exception as e:
+                logger.error(f"发送手牌给玩家 {player.user_id} 失败: {e}")
 
 
 # ============== 游戏列表 ==============
