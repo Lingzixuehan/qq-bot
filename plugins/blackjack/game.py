@@ -55,7 +55,9 @@ class BlackjackGame:
 
         # 超时相关
         self.timeout_task: Optional[asyncio.Task] = None  # 当前的超时任务
+        self.reminder_task: Optional[asyncio.Task] = None  # 中途提醒任务
         self.timeout_callback: Optional[Callable] = None  # 超时回调函数
+        self.reminder_callback: Optional[Callable] = None  # 中途提醒回调函数
         self.timeout_duration = 30  # 超时时间（秒）
 
         # 投票取消相关
@@ -534,6 +536,19 @@ class BlackjackGame:
         if not current:
             return
 
+        # 创建中途提醒任务（超时时长的一半）
+        async def reminder_handler():
+            try:
+                await asyncio.sleep(self.timeout_duration / 2)
+                # 中途提醒
+                if self.reminder_callback and not self.finished:
+                    await self.reminder_callback(self.group_id, current.user_id)
+            except asyncio.CancelledError:
+                # 任务被取消，正常结束
+                pass
+
+        self.reminder_task = asyncio.create_task(reminder_handler())
+
         # 创建超时任务
         async def timeout_handler():
             try:
@@ -552,6 +567,9 @@ class BlackjackGame:
         if self.timeout_task and not self.timeout_task.done():
             self.timeout_task.cancel()
             self.timeout_task = None
+        if self.reminder_task and not self.reminder_task.done():
+            self.reminder_task.cancel()
+            self.reminder_task = None
 
     def auto_surrender(self, user_id: str) -> str:
         """

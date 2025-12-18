@@ -72,7 +72,9 @@ class TexasHoldemGame:
 
         # 超时相关
         self.timeout_task: Optional[asyncio.Task] = None
+        self.reminder_task: Optional[asyncio.Task] = None
         self.timeout_callback: Optional[Callable] = None
+        self.reminder_callback: Optional[Callable] = None
         self.timeout_duration = 30
 
     def add_player(self, user_id: str, user_name: str) -> Tuple[bool, str]:
@@ -545,7 +547,21 @@ class TexasHoldemGame:
         winner.chips += self.pot
 
         msg = "━━━━━━━━━━━━━━\n"
-        msg += f"🎊 【{winner.user_name}】获胜！\n"
+        msg += f"🎊 【{winner.user_name}】获胜！（其他玩家已弃牌）\n"
+
+        # 显示当前公共牌（如果有）
+        if len(self.community_cards) > 0:
+            # 判断游戏进行到哪个阶段
+            stage = ""
+            if len(self.community_cards) == 3:
+                stage = "（翻牌圈）"
+            elif len(self.community_cards) == 4:
+                stage = "（转牌圈）"
+            elif len(self.community_cards) == 5:
+                stage = "（河牌圈）"
+
+            msg += f"🃏 公共牌：{self.community_cards}{stage}\n"
+
         msg += f"💰 赢得底池：{self.pot}\n"
         msg += "━━━━━━━━━━━━━━\n"
         msg += self._settle_game()
@@ -676,6 +692,26 @@ class TexasHoldemGame:
 
     def start_timeout(self):
         """启动超时计时"""
+        # 取消之前的任务
+        self.cancel_timeout()
+
+        current = self.get_current_player()
+        if not current:
+            return
+
+        # 创建中途提醒任务
+        if self.reminder_callback:
+            async def reminder_handler():
+                try:
+                    await asyncio.sleep(self.timeout_duration / 2)
+                    if self.reminder_callback and not self.finished:
+                        await self.reminder_callback(self.group_id, current.user_id)
+                except asyncio.CancelledError:
+                    pass
+
+            self.reminder_task = asyncio.create_task(reminder_handler())
+
+        # 创建超时任务
         if self.timeout_callback:
             self.timeout_task = asyncio.create_task(self._timeout_handler())
 
@@ -684,13 +720,17 @@ class TexasHoldemGame:
         if self.timeout_task:
             self.timeout_task.cancel()
             self.timeout_task = None
+        if self.reminder_task:
+            self.reminder_task.cancel()
+            self.reminder_task = None
 
     async def _timeout_handler(self):
         """超时处理器"""
         try:
             await asyncio.sleep(self.timeout_duration)
-            if self.timeout_callback:
-                await self.timeout_callback(self.group_id, self.get_current_player().user_id)
+            current = self.get_current_player()
+            if self.timeout_callback and current:
+                await self.timeout_callback(self.group_id, current.user_id)
         except asyncio.CancelledError:
             pass
 

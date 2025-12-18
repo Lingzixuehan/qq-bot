@@ -48,6 +48,33 @@ async def handle_player_timeout(group_id: str, user_id: str):
             logger.error(f"发送超时消息失败: {e}")
 
 
+async def handle_player_reminder(group_id: str, user_id: str):
+    """
+    处理玩家操作中途提醒
+
+    Args:
+        group_id: 群号
+        user_id: 用户QQ号
+    """
+    game = game_manager.get_player_game(group_id, user_id)
+    if not game or game.finished:
+        return
+
+    current = game.get_current_player()
+    if not current or current.user_id != user_id:
+        return
+
+    # 发送提醒消息
+    msg = f"⏰ [AT:{user_id}] 请尽快操作，还有 {int(game.timeout_duration / 2)} 秒将自动弃牌！"
+
+    try:
+        bot = get_driver().bots.get(list(get_driver().bots.keys())[0])
+        if bot:
+            await bot.send_group_msg(group_id=int(group_id), message=parse_at_message(msg))
+    except Exception as e:
+        logger.error(f"发送提醒消息失败: {e}")
+
+
 def parse_at_message(msg: str) -> Message:
     """
     解析消息中的 [AT:user_id] 标记并转换为@消息段
@@ -164,10 +191,11 @@ async def handle_texas_create(bot: Bot, event: GroupMessageEvent, args: Message 
     )
 
     if success:
-        # 设置超时回调
+        # 设置超时回调和提醒回调
         game = game_manager.get_game(group_id, game_id)
         if game:
             game.timeout_callback = handle_player_timeout
+            game.reminder_callback = handle_player_reminder
             game.timeout_duration = TIMEOUT_DURATION
 
     await texas_create.finish(msg)
@@ -217,7 +245,12 @@ async def handle_texas_join(bot: Bot, event: GroupMessageEvent, args: Message = 
 
     # 加入游戏
     success, msg = game.add_player(user_id, user_name)
-    await texas_join.finish(msg)
+
+    # 检查是否人满
+    if success and len(game.players) == game.max_players:
+        msg += f"\n\n[AT:{game.creator_id}] 房间已满员！可以使用 /开始德扑 {game_id} 开始游戏了！"
+
+    await texas_join.finish(parse_at_message(msg))
 
 
 # ============== 开始游戏 ==============
@@ -268,6 +301,9 @@ async def handle_texas_start(bot: Bot, event: GroupMessageEvent, args: Message =
                 )
             except Exception as e:
                 logger.error(f"发送手牌给玩家 {player.user_id} 失败: {e}")
+
+    # 确保handler正确结束
+    await texas_start.finish()
 
 
 # ============== 游戏列表 ==============
@@ -359,7 +395,7 @@ async def handle_fold(event: GroupMessageEvent):
         await fold_cmd.finish("你不在任何游戏中！")
 
     msg = game.fold(user_id)
-    await fold_cmd.send(parse_at_message(msg))
+    await fold_cmd.finish(parse_at_message(msg))
 
 
 # ============== 过牌 ==============
@@ -378,7 +414,7 @@ async def handle_check(event: GroupMessageEvent):
         await check_cmd.finish("你不在任何游戏中！")
 
     msg = game.check(user_id)
-    await check_cmd.send(parse_at_message(msg))
+    await check_cmd.finish(parse_at_message(msg))
 
 
 # ============== 跟注 ==============
@@ -397,7 +433,7 @@ async def handle_call(event: GroupMessageEvent):
         await call_cmd.finish("你不在任何游戏中！")
 
     msg = game.call(user_id)
-    await call_cmd.send(parse_at_message(msg))
+    await call_cmd.finish(parse_at_message(msg))
 
 
 # ============== 加注 ==============
@@ -429,7 +465,7 @@ async def handle_raise(event: GroupMessageEvent, args: Message = CommandArg()):
         await raise_cmd.finish("金额必须大于0！")
 
     msg = game.raise_bet(user_id, amount)
-    await raise_cmd.send(parse_at_message(msg))
+    await raise_cmd.finish(parse_at_message(msg))
 
 
 # ============== 全下 ==============
@@ -448,7 +484,7 @@ async def handle_allin(event: GroupMessageEvent):
         await allin_cmd.finish("你不在任何游戏中！")
 
     msg = game.all_in(user_id)
-    await allin_cmd.send(parse_at_message(msg))
+    await allin_cmd.finish(parse_at_message(msg))
 
 
 # ============== 查看手牌（私聊） ==============

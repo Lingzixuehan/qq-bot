@@ -54,6 +54,35 @@ async def handle_player_timeout(group_id: str, user_id: str):
             logger.error(f"发送超时消息失败: {e}")
 
 
+async def handle_player_reminder(group_id: str, user_id: str):
+    """
+    处理玩家操作中途提醒
+
+    Args:
+        group_id: 群号
+        user_id: 用户QQ号
+    """
+    # 获取游戏
+    game = game_manager.get_player_game(group_id, user_id)
+    if not game or game.finished:
+        return
+
+    # 获取当前玩家
+    current = game.get_current_player()
+    if not current or current.user_id != user_id:
+        return
+
+    # 发送提醒消息
+    msg = f"⏰ [AT:{user_id}] 请尽快操作，还有 {int(game.timeout_duration / 2)} 秒将自动投降！"
+
+    try:
+        bot = get_driver().bots.get(list(get_driver().bots.keys())[0])
+        if bot:
+            await bot.send_group_msg(group_id=int(group_id), message=parse_at_message(msg))
+    except Exception as e:
+        logger.error(f"发送提醒消息失败: {e}")
+
+
 def parse_at_message(msg: str) -> Message:
     """
     解析消息中的 [AT:user_id] 标记并转换为@消息段
@@ -267,10 +296,11 @@ async def handle_create_game(bot: Bot, event: GroupMessageEvent, args: Message =
     if not success:
         await create_game_cmd.finish(error_msg)
 
-    # 设置超时回调
+    # 设置超时回调和提醒回调
     game = game_manager.get_game(group_id, game_id)
     if game:
         game.timeout_callback = handle_player_timeout
+        game.reminder_callback = handle_player_reminder
 
     await create_game_cmd.finish(
         f"🎮 21点游戏已创建！\n"
