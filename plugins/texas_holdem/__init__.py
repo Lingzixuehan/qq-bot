@@ -224,7 +224,7 @@ texas_start = on_command("开始德扑", aliases={"开始德州扑克", "startte
 
 @texas_start.handle()
 @require_fun_group()
-async def handle_texas_start(event: GroupMessageEvent, args: Message = CommandArg()):
+async def handle_texas_start(bot: Bot, event: GroupMessageEvent, args: Message = CommandArg()):
     """开始德州扑克游戏"""
     group_id = str(event.group_id)
     user_id = str(event.user_id)
@@ -259,7 +259,7 @@ async def handle_texas_start(event: GroupMessageEvent, args: Message = CommandAr
             hand_msg = f"🎮 德州扑克游戏开始！\n🃏 你的手牌：{hole_str}"
 
             try:
-                await event.bot.send_private_msg(
+                await bot.send_private_msg(
                     user_id=int(player.user_id),
                     group_id=event.group_id,
                     message=hand_msg
