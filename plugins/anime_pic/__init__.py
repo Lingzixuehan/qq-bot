@@ -5,6 +5,7 @@
 """
 from nonebot import on_command, get_driver
 from nonebot.adapters.onebot.v11 import MessageEvent, MessageSegment, GroupMessageEvent
+from nonebot.adapters.onebot.v11.exception import ActionFailed
 from nonebot.params import CommandArg
 from nonebot.adapters.onebot.v11 import Message
 from nonebot.exception import FinishedException
@@ -333,6 +334,10 @@ async def handle_random_pic(event: MessageEvent, args: Message = CommandArg()):
 
     except FinishedException:
         raise
+    except ActionFailed as e:
+        logger.error(f"[美图] 发送消息失败: {e}")
+        # 发送消息失败时不再尝试finish，避免循环错误
+        logger.warning(f"图片发送失败，可能是图片过大或网络问题: {img_url if 'img_url' in locals() else 'unknown'}")
     except requests.Timeout as e:
         logger.error(f"[美图] 请求超时: {e}")
         await random_pic.finish("❌ 请求超时，请稍后重试")
@@ -588,6 +593,10 @@ async def handle_search_pic(event: MessageEvent, args: Message = CommandArg()):
 
     except FinishedException:
         raise
+    except ActionFailed as e:
+        logger.error(f"[搜图] 发送消息失败: {e}")
+        # 发送消息失败时不再尝试finish，避免循环错误
+        logger.warning(f"图片发送失败，可能是图片过大或网络问题: {img_url if 'img_url' in locals() else 'unknown'}")
     except requests.Timeout as e:
         logger.error(f"[搜图] 请求超时: {e}")
         await search_pic.finish("❌ 请求超时，请稍后重试")
@@ -761,7 +770,11 @@ async def handle_multi_pic(event: MessageEvent, args: Message = CommandArg()):
     except Exception as e:
         logger.error(f"[来点图] 获取多图失败: {e}")
 
-    if success_count > 0:
-        await multi_pic.finish(f"✅ 成功发送 {success_count}/{num} 张图片")
-    else:
-        await multi_pic.finish("❌ 所有图片获取失败")
+    try:
+        if success_count > 0:
+            await multi_pic.finish(f"✅ 成功发送 {success_count}/{num} 张图片")
+        else:
+            await multi_pic.finish("❌ 所有图片获取失败")
+    except ActionFailed as e:
+        logger.error(f"[来点图] 发送最终消息失败: {e}")
+        # 静默失败，不再尝试发送消息
