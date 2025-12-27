@@ -5,7 +5,7 @@
 - 缓存撤回的消息
 - 通过命令查看撤回的消息：/防撤回 或 /防撤回 @某人
 """
-from nonebot import on_notice, on_message, on_command
+from nonebot import on_notice, on_message, on_command, get_driver
 from nonebot.adapters.onebot.v11 import (
     Bot,
     GroupMessageEvent,
@@ -21,6 +21,18 @@ from pathlib import Path
 
 # 添加父目录到路径
 sys.path.append(str(Path(__file__).parent.parent))
+
+# 读取配置
+driver = get_driver()
+config = driver.config
+
+# 黑名单配置：禁用防撤回功能的群
+ANTI_RECALL_BLACKLIST = set()
+blacklist_str = getattr(config, "anti_recall_blacklist", "")
+if blacklist_str:
+    # 格式：群号,群号,群号
+    blacklist_str = str(blacklist_str)
+    ANTI_RECALL_BLACKLIST = set(gid.strip() for gid in blacklist_str.split(",") if gid.strip())
 
 # 消息缓存：存储最近的消息
 # 格式：{message_id: {"user_id": xx, "user_name": xx, "message": xx, "time": xx, "group_id": xx}}
@@ -39,10 +51,15 @@ cache_msg = on_message(priority=1, block=False)
 @cache_msg.handle()
 async def handle_cache_message(bot: Bot, event: GroupMessageEvent):
     """缓存群消息"""
+    group_id = str(event.group_id)
+
+    # 检查黑名单
+    if group_id in ANTI_RECALL_BLACKLIST:
+        return
+
     message_id = event.message_id
     user_id = str(event.user_id)
     user_name = event.sender.card or event.sender.nickname or str(user_id)
-    group_id = str(event.group_id)
 
     # 缓存消息内容
     message_cache[message_id] = {
@@ -68,10 +85,15 @@ async def handle_recall(bot: Bot, event: GroupRecallNoticeEvent):
     if event.notice_type != "group_recall":
         return
 
+    group_id = str(event.group_id)
+
+    # 检查黑名单
+    if group_id in ANTI_RECALL_BLACKLIST:
+        return
+
     message_id = event.message_id
     operator_id = event.operator_id
     user_id = event.user_id
-    group_id = str(event.group_id)
 
     # 从缓存中查找被撤回的消息
     if message_id not in message_cache:
@@ -129,6 +151,10 @@ view_recall = on_command("防撤回", priority=5)
 async def handle_view_recall(bot: Bot, event: GroupMessageEvent, args: Message = CommandArg()):
     """查看撤回的消息"""
     group_id = str(event.group_id)
+
+    # 检查黑名单
+    if group_id in ANTI_RECALL_BLACKLIST:
+        await view_recall.finish("❌ 本群已禁用防撤回功能")
 
     # 检查该群是否有撤回记录
     if group_id not in recalled_messages or not recalled_messages[group_id]:
