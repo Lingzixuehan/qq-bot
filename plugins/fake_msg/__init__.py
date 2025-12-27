@@ -2,12 +2,24 @@
 伪造发言插件
 发送伪造的聊天记录
 """
-from nonebot import on_command
+from nonebot import on_command, get_driver
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, MessageSegment, Message
 from nonebot.params import CommandArg
 from nonebot.log import logger
 
 from ..common import require_fun_group
+
+# 读取配置
+driver = get_driver()
+config = driver.config
+
+# 黑名单配置：禁用伪造发言功能的群
+FAKE_MSG_BLACKLIST = set()
+blacklist_str = getattr(config, "fake_msg_blacklist", "")
+if blacklist_str:
+    # 格式：群号,群号,群号
+    blacklist_str = str(blacklist_str)
+    FAKE_MSG_BLACKLIST = set(gid.strip() for gid in blacklist_str.split(",") if gid.strip())
 
 fake_msg = on_command("伪造发言", aliases={"假消息", "伪造消息"}, priority=5, block=True)
 
@@ -20,6 +32,12 @@ async def handle_fake_msg(bot: Bot, event: GroupMessageEvent, args: Message = Co
     命令格式：/伪造发言 @用户1 文本1 @用户2 文本2 ...
     支持文本、图片、表情等所有消息类型
     """
+    group_id = str(event.group_id)
+
+    # 检查黑名单
+    if group_id in FAKE_MSG_BLACKLIST:
+        await fake_msg.finish("❌ 本群已禁用伪造发言功能")
+
     # 解析消息：提取 @用户 和对应的内容
     segments = args
     if not segments:
