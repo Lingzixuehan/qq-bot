@@ -86,6 +86,11 @@ async def handle_help(bot: Bot, event: MessageEvent):
         MessageSegment.node_custom(
             user_id=bot_id,
             nickname=bot_name,
+            content="🌙 睡前故事\n\n/睡前故事 - 获取一个温馨的睡前故事\n/讲故事 - 同上\n/晚安故事 - 同上\n\n⏰ 开放时间：晚上21:00 - 凌晨03:00\n📚 故事库：15个治愈系故事\n🎲 智能防重复：自动避免短期内重复\n\n💡 在非睡眠时段使用会提示开放时间"
+        ),
+        MessageSegment.node_custom(
+            user_id=bot_id,
+            nickname=bot_name,
             content="📖 其他说明\n\n💡 所有命令都需要使用 / 前缀\n💡 例如：/help\n💡 大部分命令支持群聊和私聊"
         ),
     ]
